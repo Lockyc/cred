@@ -1,0 +1,14 @@
+name    = "cred"
+summary = "A command, not a shell snippet, for landing a credential into a standalone file or one .env key with a paste-back receipt that never shows the value"
+kind    = "tool"
+status  = "active"
+tags    = ["credentials", "secrets", "cli", "agents"]
+stack   = ["go"]
+
+[github]
+topics_extra = ["cli", "developer-tools", "golang", "secrets", "credentials", "dotenv"]
+
+[[provides]]
+name    = "credential-intake"
+summary = "go-installable `cred set/show/rm` binary: types or pipes a credential into a standalone file or a single .env key, with hidden-prompt entry, atomic writes, and a paste-back receipt (path/mode/size/fingerprint, never the value)"
+url     = "https://github.com/lockyc/cred"
