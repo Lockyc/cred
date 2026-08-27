@@ -184,6 +184,43 @@ func TestRemoveEnvKeyOnMissingFileIsAnError(t *testing.T) {
 	if err := RemoveEnvKey(p, "API_KEY"); err == nil {
 		t.Fatal("want an error when the file does not exist")
 	}
+	if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
+		t.Fatal("RemoveEnvKey must not create a file when the source path does not exist")
+	}
+}
+
+func TestRemoveEnvKeyOnExisting0644FileLeavesIt0644(t *testing.T) {
+	p := writeEnv(t, "A=1\nAPI_KEY=secret\nB=2\n")
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveEnvKey(p, "API_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %o, want the file's existing 644 preserved", fi.Mode().Perm())
+	}
+}
+
+// writeFileAtomic is exercised directly (same package) because RemoveEnvKey
+// always calls it with created=false right after a successful ReadFile of
+// the same path, so a Stat failure inside writeFileAtomic can't be provoked
+// through RemoveEnvKey's public surface. Calling writeFileAtomic on a path
+// that doesn't exist reproduces the same not-created-but-Stat-fails
+// situation directly: before the fix, a failed Stat fell through to the
+// passed-in mode (0 here), and the renamed file came out 0o000.
+func TestWriteFileAtomicOnStatFailureReturnsErrorRatherThanZeroingMode(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "gone.env")
+	if err := writeFileAtomic(p, []byte("A=1\n"), 0, false); err == nil {
+		t.Fatal("want an error when the not-created path's Stat fails")
+	}
+	if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
+		t.Fatal("writeFileAtomic must not leave a file behind when Stat fails on the not-created path")
+	}
 }
 
 // Set->Get round trip: whatever SetEnvKey was given, GetEnvKey must return
@@ -239,6 +276,24 @@ func TestSetEnvKeyRefusesADuplicateKey(t *testing.T) {
 		t.Errorf("error must not leak a value, got: %v", err)
 	}
 	if got, want := readEnv(t, p), "API_KEY=first\nAPI_KEY=second\n"; got != want {
+		t.Fatalf("SetEnvKey wrote something despite the duplicate:\n%s", got)
+	}
+}
+
+func TestSetEnvKeyRefusesADuplicateKeyWithExportOrLeadingWhitespace(t *testing.T) {
+	p := writeEnv(t, "API_KEY=one\nexport API_KEY=two\n")
+	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err == nil {
+		t.Fatal("want an error for a duplicate expressed as a plain assignment and an export")
+	}
+	if got, want := readEnv(t, p), "API_KEY=one\nexport API_KEY=two\n"; got != want {
+		t.Fatalf("SetEnvKey wrote something despite the duplicate:\n%s", got)
+	}
+
+	p2 := writeEnv(t, "API_KEY=one\n  API_KEY=two\n")
+	if err := SetEnvKey(p2, "API_KEY", "new", 0o600); err == nil {
+		t.Fatal("want an error for a duplicate with leading whitespace")
+	}
+	if got, want := readEnv(t, p2), "API_KEY=one\n  API_KEY=two\n"; got != want {
 		t.Fatalf("SetEnvKey wrote something despite the duplicate:\n%s", got)
 	}
 }

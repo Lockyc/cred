@@ -26,9 +26,11 @@ func newScanner(b []byte) *bufio.Scanner {
 	return sc
 }
 
-// detectEOL reports the line ending already dominant in b, so rewriting one
-// key doesn't rewrite every other line's ending. A file with no newline at
-// all (including one that doesn't exist yet) uses "\n".
+// detectEOL reports the line ending already dominant in b. The dominant
+// ending is preserved on rewrite; a file with mixed CRLF and LF endings is
+// normalised to whichever is dominant, so the other lines' endings do
+// change in that case. A file with no newline at all (including one that
+// doesn't exist yet) uses "\n".
 func detectEOL(b []byte) string {
 	crlf := bytes.Count(b, []byte("\r\n"))
 	lf := bytes.Count(b, []byte("\n")) - crlf
@@ -68,9 +70,11 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode, created bool) e
 
 	perm := mode
 	if !created {
-		if fi, statErr := os.Stat(path); statErr == nil {
-			perm = fi.Mode().Perm()
+		fi, statErr := os.Stat(path)
+		if statErr != nil {
+			return statErr
 		}
+		perm = fi.Mode().Perm()
 	}
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
