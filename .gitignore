@@ -1,0 +1,5 @@
+/cred
+docs/superpowers/
+.superpowers/
+.claude/worktrees/
+.DS_Store
