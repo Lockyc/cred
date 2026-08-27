@@ -368,8 +368,10 @@ func TestShowMissingFileExitsOne(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1", code)
 	}
-	if !strings.Contains(out.String()+errOut.String(), "MISSING") {
-		t.Fatalf("want a MISSING report, got:\n%s%s", out.String(), errOut.String())
+	// Asserted against stdout only, not out+errOut: a MISSING report that
+	// regressed onto stderr must fail this test, not slip past it.
+	if !strings.Contains(out.String(), "MISSING") {
+		t.Fatalf("want a MISSING report on stdout, got stdout:\n%s\nstderr:\n%s", out.String(), errOut.String())
 	}
 }
 
@@ -409,8 +411,11 @@ func TestShowNonNotExistStatErrorIsRuntimeErrorNotMissing(t *testing.T) {
 	if strings.Contains(out.String(), "MISSING") {
 		t.Fatalf("a permission-denied stat was reported as MISSING, masking the real error:\n%s", out.String())
 	}
-	if !strings.Contains(errOut.String(), "cred:") {
-		t.Fatalf("stderr = %q, want the real stat error surfaced", errOut.String())
+	// "cred:" alone is satisfied by every cred error, including the old
+	// MISSING report — assert the actual underlying stat error text so this
+	// only passes when the real error was surfaced.
+	if !strings.Contains(errOut.String(), "permission denied") {
+		t.Fatalf("stderr = %q, want the underlying \"permission denied\" stat error surfaced", errOut.String())
 	}
 }
 
@@ -492,9 +497,21 @@ func TestRmRefusesADirectory(t *testing.T) {
 // are the exact message and exit code, not just "not zero" — a test that
 // only checked the exit code wouldn't distinguish an honest refusal from any
 // other unrelated failure.
+//
+// The fixture deliberately has no trailing newline: RemoveEnvKey's rewrite
+// path (via writeFileAtomic) normalises line endings, so a fixture already
+// in normalised form ("A=1\n") would pass even if runRm called RemoveEnvKey
+// unconditionally and only checked presence afterward to decide what to
+// print — the spurious rewrite would produce byte-identical output. The
+// mtime check below is the same belt-and-braces: even if content happened
+// to come out identical, an unwanted rewrite still replaces the inode.
 func TestRmNameOnAbsentKeyDoesNotClaimSuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte("A=1\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("A=1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
@@ -512,8 +529,15 @@ func TestRmNameOnAbsentKeyDoesNotClaimSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != "A=1\n" {
+	if string(b) != "A=1" {
 		t.Fatalf("env file changed despite the key being absent =\n%s", string(b))
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("file was rewritten despite the key being absent: mtime %v -> %v", before.ModTime(), after.ModTime())
 	}
 }
 

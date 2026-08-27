@@ -166,13 +166,12 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "cred: %v\n", err)
 			return 1
 		}
-		// RemoveEnvKey is a documented no-op when the key is absent, so
-		// presence has to be checked separately — otherwise "removed" gets
-		// printed regardless of whether anything actually was.
-		if err := store.RemoveEnvKey(path, *key); err != nil {
-			fmt.Fprintf(stderr, "cred: %v\n", err)
-			return 1
-		}
+		// RemoveEnvKey is a documented no-op when the key is absent, but it
+		// still rewrites the file (writeFileAtomic runs regardless) — a new
+		// inode, a bumped mtime, normalised line endings — even though
+		// nothing changed. Presence has to be checked, and gate the call to
+		// RemoveEnvKey, before that write happens: otherwise "nothing
+		// removed" is printed while the file was silently rewritten anyway.
 		if !present {
 			// Exit 1, not 0: rm claiming to have done something it didn't is
 			// exactly the failure this fixes. This mirrors the whole-file
@@ -180,6 +179,10 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 			// to remove — an absent key is the same class of event as an
 			// absent file, not a quiet success.
 			fmt.Fprintf(stderr, "cred: key %s is not set in %s — nothing removed\n", *key, path)
+			return 1
+		}
+		if err := store.RemoveEnvKey(path, *key); err != nil {
+			fmt.Fprintf(stderr, "cred: %v\n", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "cred: removed key %s from %s\n", *key, path)
