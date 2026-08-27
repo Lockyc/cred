@@ -59,18 +59,9 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	modeStr := fs.String("mode", "600", "octal file mode")
 	valueFrom := fs.String("value-from", "", "run this command and use its stdout as the value")
 
-	flagArgs, path, extra := splitPathArgs(args)
-	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+	path, ok, code := parsePathCommand("set", "destination path", fs, args, stdout, stderr)
+	if !ok {
 		return code
-	}
-	if path == "" || len(extra) > 0 {
-		fmt.Fprintf(stderr, "cred: set needs exactly one destination path\n\n%s", usage)
-		return 2
-	}
-	path, err := expandTilde(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
 	}
 
 	mode, err := strconv.ParseUint(*modeStr, 8, 32)
@@ -123,23 +114,22 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	key := fs.String("name", "", "report on this KEY inside a .env file")
 
-	flagArgs, rawPath, extra := splitPathArgs(args)
-	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+	path, ok, code := parsePathCommand("show", "path", fs, args, stdout, stderr)
+	if !ok {
 		return code
-	}
-	if rawPath == "" || len(extra) > 0 {
-		fmt.Fprintf(stderr, "cred: show needs exactly one path\n\n%s", usage)
-		return 2
-	}
-	path, err := expandTilde(rawPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
 	}
 
 	fi, err := os.Stat(path)
 	if err != nil {
-		fmt.Fprintf(stdout, "cred: MISSING — %s does not exist\n", path)
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stdout, "cred: MISSING — %s does not exist\n", path)
+			return 1
+		}
+		// Any other stat error (EACCES on a parent directory, ELOOP, ENOTDIR,
+		// ...) is not "the credential is absent" — reporting it as MISSING
+		// would send someone to `cred set` and overwrite a live credential
+		// that was merely unreadable.
+		fmt.Fprintf(stderr, "cred: %v\n", err)
 		return 1
 	}
 	var value string
@@ -153,7 +143,7 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	r := receipt.Receipt{
-		Path: path, Key: *key, Mode: fmt.Sprintf("%o", fi.Mode().Perm()),
+		Path: path, Key: *key, Mode: modeString(fi),
 		Bytes: len(value), Fingerprint: receipt.Fingerprint(value),
 		Modified: fi.ModTime().Format("2006-01-02 15:04:05"),
 	}
@@ -165,27 +155,45 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
 	key := fs.String("name", "", "remove this KEY from a .env file instead of deleting the file")
 
-	flagArgs, rawPath, extra := splitPathArgs(args)
-	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+	path, ok, code := parsePathCommand("rm", "path", fs, args, stdout, stderr)
+	if !ok {
 		return code
-	}
-	if rawPath == "" || len(extra) > 0 {
-		fmt.Fprintf(stderr, "cred: rm needs exactly one path\n\n%s", usage)
-		return 2
-	}
-	path, err := expandTilde(rawPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
 	}
 
 	if *key != "" {
+		present, err := store.HasEnvKey(path, *key)
+		if err != nil {
+			fmt.Fprintf(stderr, "cred: %v\n", err)
+			return 1
+		}
+		// RemoveEnvKey is a documented no-op when the key is absent, so
+		// presence has to be checked separately — otherwise "removed" gets
+		// printed regardless of whether anything actually was.
 		if err := store.RemoveEnvKey(path, *key); err != nil {
 			fmt.Fprintf(stderr, "cred: %v\n", err)
 			return 1
 		}
+		if !present {
+			// Exit 1, not 0: rm claiming to have done something it didn't is
+			// exactly the failure this fixes. This mirrors the whole-file
+			// path below, which also exits 1 when there is nothing at path
+			// to remove — an absent key is the same class of event as an
+			// absent file, not a quiet success.
+			fmt.Fprintf(stderr, "cred: key %s is not set in %s — nothing removed\n", *key, path)
+			return 1
+		}
 		fmt.Fprintf(stdout, "cred: removed key %s from %s\n", *key, path)
 		return 0
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+	if !fi.Mode().IsRegular() {
+		fmt.Fprintf(stderr, "cred: %s is not a regular file — refusing to remove\n", path)
+		return 1
 	}
 	if err := os.Remove(path); err != nil {
 		fmt.Fprintf(stderr, "cred: %v\n", err)
@@ -193,6 +201,29 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "cred: removed %s\n", path)
 	return 0
+}
+
+// parsePathCommand runs the prologue set, show and rm each need before their
+// own logic: split flags from the destination path (so the path may appear
+// before, after, or between flags), parse the flags, reject a missing or
+// extra positional argument, then expand a leading ~/. name and pathDesc
+// carry the only piece that differs between callers — the command noun and
+// the phrase describing what's missing in the usage-error message.
+func parsePathCommand(name, pathDesc string, fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (path string, ok bool, code int) {
+	flagArgs, rawPath, extra := splitPathArgs(args)
+	if parsed, c := parseFlags(fs, flagArgs, stdout, stderr); !parsed {
+		return "", false, c
+	}
+	if rawPath == "" || len(extra) > 0 {
+		fmt.Fprintf(stderr, "cred: %s needs exactly one %s\n\n%s", name, pathDesc, usage)
+		return "", false, 2
+	}
+	path, err := expandTilde(rawPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return "", false, 1
+	}
+	return path, true, 0
 }
 
 // splitPathArgs separates flags from the destination path so a command
@@ -281,5 +312,13 @@ func modeOf(path string) string {
 	if err != nil {
 		return "?"
 	}
+	return modeString(fi)
+}
+
+// modeString renders a FileInfo's permission bits the way the receipt shows
+// them. Shared by modeOf (which stats path itself) and runShow (which
+// already holds the FileInfo from its own os.Stat), so the format lives in
+// exactly one place.
+func modeString(fi os.FileInfo) string {
 	return fmt.Sprintf("%o", fi.Mode().Perm())
 }

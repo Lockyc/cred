@@ -205,6 +205,29 @@ func unquoteEnv(v string) string {
 	return v
 }
 
+// HasEnvKey reports whether key has at least one assignment in path, using
+// the same matching as SetEnvKey and GetEnvKey. Unlike GetEnvKey, a duplicate
+// key is not an error here — RemoveEnvKey's contract is to drop every
+// occurrence, so a caller checking "is there anything to remove" needs
+// presence, not a single authoritative value.
+func HasEnvKey(path, key string) (bool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	re := keyLine(key)
+	sc := newScanner(b)
+	for sc.Scan() {
+		if re.MatchString(sc.Text()) {
+			return true, nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 // RemoveEnvKey drops key's line from path, leaving the rest untouched. Unlike
 // SetEnvKey and GetEnvKey, it deletes every occurrence of a duplicate key
 // rather than refusing: that outcome is unambiguous, and it's the user's
