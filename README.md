@@ -51,14 +51,16 @@ command's own option list.
 `<path>`. `--value-from '<command>'` reads the value from another command's
 stdout instead of prompting — useful when scripting. `--expect-prefix`
 refuses to write if the value doesn't start with the given string, catching
-a wrong paste before it lands. `--mode` sets the octal file mode of a
-newly-created file (default `600`).
+a wrong paste before it lands. `--mode` sets the octal mode (default `600`).
+A standalone destination is always set to this mode, even if the file
+already exists — ensuring a credential file stays tight. An existing `.env`
+keeps the mode it already has, so `--mode` applies to it only at creation.
 
 Worked example — a standalone credential file:
 
 ```console
 $ cred set ~/.config/example/token --expect-prefix tok_
-Value for /home/you/.config/example/token: [hidden]
+Value for /home/you/.config/example/token: 
 cred: OK
   path         /home/you/.config/example/token
   mode         600
@@ -68,6 +70,8 @@ cred: OK
 
 Paste this block back to the agent.
 ```
+
+Your input is not echoed to the terminal, so the prompt appears with nothing following it.
 
 ```console
 $ cred show ~/.config/example/token
@@ -88,7 +92,7 @@ every other key) is left untouched:
 
 ```console
 $ cred set ~/project/.env --name API_KEY --expect-prefix sk_
-Value for API_KEY: [hidden]
+Value for API_KEY: 
 cred: OK
   path         /home/you/project/.env
   key          API_KEY
@@ -99,6 +103,8 @@ cred: OK
 
 Paste this block back to the agent.
 ```
+
+Again, your input is not echoed.
 
 `cred rm ~/project/.env --name API_KEY` removes just that line; on a key
 that isn't set, it reports nothing was removed and exits 1 without touching
