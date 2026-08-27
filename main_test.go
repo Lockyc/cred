@@ -445,6 +445,45 @@ func TestRmDeletesTheFile(t *testing.T) {
 	}
 }
 
+// os.Stat follows a symlink, so before the fix `rm` on a symlink pointing at
+// a real credential passed the IsRegular guard (stat sees the *target*'s
+// mode) and os.Remove unlinked the symlink — printing "removed", exit 0,
+// while the credential itself survived untouched at its target path. The
+// discriminating assertions are the exit code, the absence of "removed" on
+// stdout, and — the part a mere exit-code check would miss — that both the
+// link and the target are still there afterward with the target's content
+// unchanged.
+func TestRmRefusesASymlinkAndLeavesTargetInPlace(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("cal_live_secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"rm", link}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("exit = 0, want a refusal (stdout: %s, stderr: %s)", out.String(), errOut.String())
+	}
+	if strings.Contains(out.String(), "removed") {
+		t.Fatalf("stdout claims a removal that must not have happened: %q", out.String())
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("the symlink itself was removed: %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("the credential the symlink pointed at is gone: %v", err)
+	}
+	if string(got) != "cal_live_secret\n" {
+		t.Fatalf("target contents changed: %q", got)
+	}
+}
+
 func TestRmRemovesOnlyTheNamedEnvKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte("A=1\nAPI_KEY=secret\nB=2\n"), 0o600); err != nil {

@@ -189,7 +189,13 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	fi, err := os.Stat(path)
+	// Lstat, not Stat: Stat follows a symlink, so a symlink pointing at a
+	// real credential would pass the IsRegular guard below (Stat reports the
+	// target's mode) and os.Remove would unlink the symlink while leaving
+	// the credential at its target untouched — a silent success that isn't
+	// one. Lstat reports the symlink's own type, so it is refused here like
+	// any other non-regular path.
+	fi, err := os.Lstat(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "cred: %v\n", err)
 		return 1
