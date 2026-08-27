@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lockyc/cred/internal/receipt"
 	"github.com/lockyc/cred/internal/store"
 )
 
@@ -318,5 +319,136 @@ func TestSetUserHomeDirFailureIsRuntimeErrorNotAJunkPath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "~")); !os.IsNotExist(err) {
 		t.Fatal("a literal ~ path was created despite the UserHomeDir failure")
+	}
+}
+
+// --- show and rm ---
+
+func TestShowReportsWithoutTheValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	var discard bytes.Buffer
+	run([]string{"set", path, "--value-from", "printf 'cal_live_SECRET'"}, &discard, &discard)
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"show", path}, &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, errOut.String())
+	}
+	if strings.Contains(out.String(), "SECRET") {
+		t.Fatalf("show leaked the value:\n%s", out.String())
+	}
+	for _, want := range []string{"cred: present", "600", "modified"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("show missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestShowMissingFileExitsOne(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"show", filepath.Join(t.TempDir(), "nope")}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(out.String()+errOut.String(), "MISSING") {
+		t.Fatalf("want a MISSING report, got:\n%s%s", out.String(), errOut.String())
+	}
+}
+
+func TestShowFingerprintMatchesSetFingerprint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	var setOut, discard bytes.Buffer
+	run([]string{"set", path, "--value-from", "printf 'cal_live_abc'"}, &setOut, &discard)
+	var showOut bytes.Buffer
+	run([]string{"show", path}, &showOut, &discard)
+
+	fp := receipt.Fingerprint("cal_live_abc")
+	if !strings.Contains(setOut.String(), fp) || !strings.Contains(showOut.String(), fp) {
+		t.Fatalf("fingerprints disagree:\nset:\n%s\nshow:\n%s", setOut.String(), showOut.String())
+	}
+}
+
+func TestRmDeletesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	var discard bytes.Buffer
+	run([]string{"set", path, "--value-from", "printf 'x'"}, &discard, &discard)
+	if code := run([]string{"rm", path}, &discard, &discard); code != 0 {
+		t.Fatal("rm failed")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("file still exists after rm")
+	}
+}
+
+func TestRmRemovesOnlyTheNamedEnvKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("A=1\nAPI_KEY=secret\nB=2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var discard bytes.Buffer
+	if code := run([]string{"rm", path, "--name", "API_KEY"}, &discard, &discard); code != 0 {
+		t.Fatal("rm failed")
+	}
+	b, _ := os.ReadFile(path)
+	if string(b) != "A=1\nB=2\n" {
+		t.Fatalf("env file =\n%s", string(b))
+	}
+}
+
+func TestShowDuplicateEnvKeyIsExitOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("API_KEY=one\nAPI_KEY=two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"show", path, "--name", "API_KEY"}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+}
+
+func TestShowFlagsAndPathInEitherOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte("API_KEY=sk_live_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out1, errOut1 bytes.Buffer
+	if code := run([]string{"show", "--name", "API_KEY", path}, &out1, &errOut1); code != 0 {
+		t.Fatalf("flags-before-path: exit = %d, stderr = %s", code, errOut1.String())
+	}
+	var out2, errOut2 bytes.Buffer
+	if code := run([]string{"show", path, "--name", "API_KEY"}, &out2, &errOut2); code != 0 {
+		t.Fatalf("path-before-flags: exit = %d, stderr = %s", code, errOut2.String())
+	}
+	if !strings.Contains(out1.String(), "API_KEY") || !strings.Contains(out2.String(), "API_KEY") {
+		t.Fatalf("receipt did not name the key:\n%s\n%s", out1.String(), out2.String())
+	}
+}
+
+func TestShowHelpPrintsUsageToStdoutAndExitsZero(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"show", "-h"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errOut.String())
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want nothing", errOut.String())
+	}
+	if !strings.Contains(out.String(), "Usage of show") {
+		t.Fatalf("stdout = %q, want the show flag set's usage", out.String())
+	}
+}
+
+func TestRmHelpPrintsUsageToStdoutAndExitsZero(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"rm", "-h"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errOut.String())
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want nothing", errOut.String())
+	}
+	if !strings.Contains(out.String(), "Usage of rm") {
+		t.Fatalf("stdout = %q, want the rm flag set's usage", out.String())
 	}
 }

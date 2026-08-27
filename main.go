@@ -36,6 +36,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "set":
 		return runSet(args[1:], stdout, stderr)
+	case "show":
+		return runShow(args[1:], stdout, stderr)
+	case "rm":
+		return runRm(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
@@ -55,7 +59,7 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	modeStr := fs.String("mode", "600", "octal file mode")
 	valueFrom := fs.String("value-from", "", "run this command and use its stdout as the value")
 
-	flagArgs, path, extra := splitSetArgs(args)
+	flagArgs, path, extra := splitPathArgs(args)
 	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
 		return code
 	}
@@ -115,18 +119,94 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// splitSetArgs separates flags from the destination path so `set` accepts
-// the path before, after, or between flags — flag.FlagSet.Parse alone stops
-// parsing at the first non-flag argument, which would otherwise leave flags
-// unparsed whenever they don't all trail the path. Every flag `set` defines
-// takes a value (none are boolean), so a "-name" or "--name" token consumes
-// the following token as its value; -h/--help is the one exception, since
-// flag.FlagSet handles those with no operand and self-contained "-name=value"
-// tokens need nothing consumed either. A "--" terminator ends flag scanning;
-// everything after it — including a token that starts with "-" — is
-// positional. extra holds any positional beyond the first, for the caller to
-// reject as a usage error.
-func splitSetArgs(args []string) (flagArgs []string, path string, extra []string) {
+func runShow(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("show", flag.ContinueOnError)
+	key := fs.String("name", "", "report on this KEY inside a .env file")
+
+	flagArgs, rawPath, extra := splitPathArgs(args)
+	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+		return code
+	}
+	if rawPath == "" || len(extra) > 0 {
+		fmt.Fprintf(stderr, "cred: show needs exactly one path\n\n%s", usage)
+		return 2
+	}
+	path, err := expandTilde(rawPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		fmt.Fprintf(stdout, "cred: MISSING — %s does not exist\n", path)
+		return 1
+	}
+	var value string
+	if *key != "" {
+		value, err = store.GetEnvKey(path, *key)
+	} else {
+		value, err = store.ReadFile(path)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+	r := receipt.Receipt{
+		Path: path, Key: *key, Mode: fmt.Sprintf("%o", fi.Mode().Perm()),
+		Bytes: len(value), Fingerprint: receipt.Fingerprint(value),
+		Modified: fi.ModTime().Format("2006-01-02 15:04:05"),
+	}
+	fmt.Fprint(stdout, r.RenderShow())
+	return 0
+}
+
+func runRm(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
+	key := fs.String("name", "", "remove this KEY from a .env file instead of deleting the file")
+
+	flagArgs, rawPath, extra := splitPathArgs(args)
+	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+		return code
+	}
+	if rawPath == "" || len(extra) > 0 {
+		fmt.Fprintf(stderr, "cred: rm needs exactly one path\n\n%s", usage)
+		return 2
+	}
+	path, err := expandTilde(rawPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+
+	if *key != "" {
+		if err := store.RemoveEnvKey(path, *key); err != nil {
+			fmt.Fprintf(stderr, "cred: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cred: removed key %s from %s\n", *key, path)
+		return 0
+	}
+	if err := os.Remove(path); err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "cred: removed %s\n", path)
+	return 0
+}
+
+// splitPathArgs separates flags from the destination path so a command
+// accepts the path before, after, or between flags — flag.FlagSet.Parse
+// alone stops parsing at the first non-flag argument, which would otherwise
+// leave flags unparsed whenever they don't all trail the path. Every flag
+// set, show and rm define takes a value (none are boolean), so a "-name" or
+// "--name" token consumes the following token as its value; -h/--help is the
+// one exception, since flag.FlagSet handles those with no operand and
+// self-contained "-name=value" tokens need nothing consumed either. A "--"
+// terminator ends flag scanning; everything after it — including a token
+// that starts with "-" — is positional. extra holds any positional beyond
+// the first, for the caller to reject as a usage error.
+func splitPathArgs(args []string) (flagArgs []string, path string, extra []string) {
 	afterTerm := false
 	havePath := false
 	takePositional := func(a string) {
