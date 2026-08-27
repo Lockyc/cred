@@ -174,14 +174,7 @@ func TestSetFlagsAfterPath(t *testing.T) {
 
 func TestSetDashDashTerminatorAllowsPathStartingWithDash(t *testing.T) {
 	dir := t.TempDir()
-	oldwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(oldwd)
+	t.Chdir(dir)
 
 	var out, errOut bytes.Buffer
 	code := run([]string{"set", "--value-from", "printf 'cal_live_abc'", "--", "-sekret"}, &out, &errOut)
@@ -302,14 +295,7 @@ func TestExpandTildeSurfacesUserHomeDirError(t *testing.T) {
 
 func TestSetUserHomeDirFailureIsRuntimeErrorNotAJunkPath(t *testing.T) {
 	dir := t.TempDir()
-	oldwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(oldwd)
+	t.Chdir(dir)
 	t.Setenv("HOME", "")
 
 	var out, errOut bytes.Buffer

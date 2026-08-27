@@ -49,8 +49,9 @@ deliberately does not do."
 - `internal/store` — `file.go` (`WriteFile`/`ReadFile`, a whole-file
   destination) and `envfile.go` (`SetEnvKey`/`GetEnvKey`/`HasEnvKey`/
   `RemoveEnvKey`, a single `.env` key, comment/ordering-preserving). Both
-  route writes through `writeFileAtomic` (temp file in the same directory,
-  `Sync`, then `Rename`), so a crash mid-write never truncates the original.
+  route writes through `atomic.go`'s `writeFileAtomic` (temp file in the
+  same directory, `Sync`, then `Rename`), so a crash mid-write never
+  truncates the original.
 - `internal/receipt` — renders the paste-back block. `Fingerprint` is an
   unsalted 12-hex-char SHA-256 prefix: unsalted so the same credential in two
   places is recognisably the same value, short enough that it is not a
@@ -93,7 +94,7 @@ is all it needs to answer.
 
 ## Footgun — create at 0600, then chmod to the target mode; never the reverse
 
-`writeFileAtomic` (`internal/store/envfile.go`) creates the temp file via
+`writeFileAtomic` (`internal/store/atomic.go`) creates the temp file via
 `os.CreateTemp` (which opens at `0600`), writes and syncs it, *then*
 `os.Chmod`s it to the target mode before the rename. The umask can only
 **remove** bits from what a process requests, never add them — so creating
