@@ -31,6 +31,12 @@ func Trim(raw string) string {
 func FromCommand(cmd string) (string, error) {
 	out, err := exec.Command("sh", "-c", cmd).Output()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				return "", fmt.Errorf("--value-from command failed: %w: %s", err, stderr)
+			}
+		}
 		return "", fmt.Errorf("--value-from command failed: %w", err)
 	}
 	v := Trim(string(out))
