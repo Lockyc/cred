@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -48,38 +50,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runSet(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("set", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	key := fs.String("name", "", "set this KEY inside a .env file instead of writing the whole file")
 	expect := fs.String("expect-prefix", "", "refuse the value unless it starts with this")
 	modeStr := fs.String("mode", "600", "octal file mode")
 	valueFrom := fs.String("value-from", "", "run this command and use its stdout as the value")
 
-	// The documented usage is `cred set <path> [options]`, path first — but
-	// flag.FlagSet.Parse stops at the first non-flag argument, so handing it
-	// args unmodified would read the path as the end of the flag list and
-	// leave every flag after it unparsed. Pull the path out by hand when it
-	// leads (the common case), so the flags that follow still reach Parse;
-	// otherwise fall through to a plain positional after the flags.
-	var path string
-	rest := args
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		path = args[0]
-		rest = args[1:]
+	flagArgs, path, extra := splitSetArgs(args)
+	if ok, code := parseFlags(fs, flagArgs, stdout, stderr); !ok {
+		return code
 	}
-	if err := fs.Parse(rest); err != nil {
-		return 2
-	}
-	if path == "" {
-		if fs.NArg() != 1 {
-			fmt.Fprintf(stderr, "cred: set needs exactly one destination path\n\n%s", usage)
-			return 2
-		}
-		path = fs.Arg(0)
-	} else if fs.NArg() != 0 {
+	if path == "" || len(extra) > 0 {
 		fmt.Fprintf(stderr, "cred: set needs exactly one destination path\n\n%s", usage)
 		return 2
 	}
-	path = expandTilde(path)
+	path, err := expandTilde(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
 
 	mode, err := strconv.ParseUint(*modeStr, 8, 32)
 	if err != nil {
@@ -127,16 +115,85 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// expandTilde handles a leading ~/ that arrived quoted. An unquoted ~ is
-// expanded by the shell, but a pasted path is often quoted and would otherwise
-// create a literal "~" directory.
-func expandTilde(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/"))
+// splitSetArgs separates flags from the destination path so `set` accepts
+// the path before, after, or between flags — flag.FlagSet.Parse alone stops
+// parsing at the first non-flag argument, which would otherwise leave flags
+// unparsed whenever they don't all trail the path. Every flag `set` defines
+// takes a value (none are boolean), so a "-name" or "--name" token consumes
+// the following token as its value; -h/--help is the one exception, since
+// flag.FlagSet handles those with no operand and self-contained "-name=value"
+// tokens need nothing consumed either. A "--" terminator ends flag scanning;
+// everything after it — including a token that starts with "-" — is
+// positional. extra holds any positional beyond the first, for the caller to
+// reject as a usage error.
+func splitSetArgs(args []string) (flagArgs []string, path string, extra []string) {
+	afterTerm := false
+	havePath := false
+	takePositional := func(a string) {
+		if !havePath {
+			path, havePath = a, true
+		} else {
+			extra = append(extra, a)
 		}
 	}
-	return p
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case afterTerm:
+			takePositional(a)
+		case a == "--":
+			afterTerm = true
+		case len(a) > 1 && a[0] == '-':
+			flagArgs = append(flagArgs, a)
+			name := strings.TrimLeft(a, "-")
+			if name != "h" && name != "help" && !strings.Contains(name, "=") && i+1 < len(args) {
+				i++
+				flagArgs = append(flagArgs, args[i])
+			}
+		default:
+			takePositional(a)
+		}
+	}
+	return flagArgs, path, extra
+}
+
+// parseFlags runs fs.Parse against a buffer rather than directly against
+// stderr, so a -h/--help result (flag.ErrHelp) can be redirected to stdout
+// with exit 0 — the documented affordance ("Run 'cred <command> -h' for the
+// options of one command") — instead of falling into the same
+// stderr-and-usage-error-2 path as a real parse failure.
+func parseFlags(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (ok bool, code int) {
+	var buf bytes.Buffer
+	fs.SetOutput(&buf)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			buf.WriteTo(stdout)
+			return false, 0
+		}
+		buf.WriteTo(stderr)
+		return false, 2
+	}
+	return true, 0
+}
+
+// expandTilde handles a leading ~/ that arrived quoted. An unquoted ~ is
+// expanded by the shell, but a pasted path is often quoted and would
+// otherwise create a literal "~" directory — so this must fail closed rather
+// than fall through to a literal ~-prefixed path in any case: neither an
+// os.UserHomeDir error nor a ~user form (which it does not resolve) is
+// treated as "leave the path alone".
+func expandTilde(p string) (string, error) {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expanding %q: %w", p, err)
+		}
+		return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/")), nil
+	}
+	if strings.HasPrefix(p, "~") {
+		return "", fmt.Errorf("%q: only ~/ is supported, not another user's home directory", p)
+	}
+	return p, nil
 }
 
 func modeOf(path string) string {

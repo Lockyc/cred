@@ -49,7 +49,7 @@ func detectEOL(b []byte) string {
 // mode applies only when created is true (the file is being written for the
 // first time). Otherwise the file at path keeps the mode it already has.
 func writeFileAtomic(path string, data []byte, mode os.FileMode, created bool) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".env.cred-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cred-*")
 	if err != nil {
 		return err
 	}
