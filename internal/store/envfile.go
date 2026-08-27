@@ -2,6 +2,7 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,68 @@ import (
 // key, then `=`. Anchored on the full key so API_KEY never matches MY_API_KEY.
 func keyLine(key string) *regexp.Regexp {
 	return regexp.MustCompile(`^\s*(export\s+)?` + regexp.QuoteMeta(key) + `=`)
+}
+
+// newScanner returns a line scanner with its buffer cap raised above the
+// bufio.Scanner default of 64 KB (a hand-edited .env can legitimately hold a
+// long value, e.g. a PEM blob or JWT on one line) so a long line surfaces via
+// Err() instead of Scan() silently returning false partway through the file.
+func newScanner(b []byte) *bufio.Scanner {
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	return sc
+}
+
+// detectEOL reports the line ending already dominant in b, so rewriting one
+// key doesn't rewrite every other line's ending. A file with no newline at
+// all (including one that doesn't exist yet) uses "\n".
+func detectEOL(b []byte) string {
+	crlf := bytes.Count(b, []byte("\r\n"))
+	lf := bytes.Count(b, []byte("\n")) - crlf
+	if crlf > lf {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// writeFileAtomic writes data to path through a same-directory temp file
+// plus rename, so a crash mid-write leaves the original file intact rather
+// than truncated. The temp file is flushed to stable storage before it's
+// closed and renamed, so a crash immediately after doesn't leave a
+// zero-length file in path's place.
+//
+// mode applies only when created is true (the file is being written for the
+// first time). Otherwise the file at path keeps the mode it already has.
+func writeFileAtomic(path string, data []byte, mode os.FileMode, created bool) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".env.cred-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	perm := mode
+	if !created {
+		if fi, statErr := os.Stat(path); statErr == nil {
+			perm = fi.Mode().Perm()
+		}
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // SetEnvKey replaces key's line in path, or appends it. Comments, ordering, and
@@ -40,54 +103,41 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 	}
 
 	assignment := key + "=" + quoteEnv(value)
+	eol := "\n"
 	var b strings.Builder
 	replaced := false
 	if !created {
+		eol = detectEOL(existing)
 		re := keyLine(key)
-		sc := bufio.NewScanner(strings.NewReader(string(existing)))
-		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+		matches := 0
+		sc := newScanner(existing)
 		for sc.Scan() {
-			if !replaced && re.MatchString(sc.Text()) {
-				b.WriteString(assignment + "\n")
-				replaced = true
+			if re.MatchString(sc.Text()) {
+				matches++
+				if !replaced {
+					b.WriteString(assignment + eol)
+					replaced = true
+				}
 				continue
 			}
-			b.WriteString(sc.Text() + "\n")
+			b.WriteString(sc.Text() + eol)
 		}
 		if err := sc.Err(); err != nil {
 			return err
 		}
-	}
-	if !replaced {
-		b.WriteString(assignment + "\n")
-	}
-
-	// Write through a same-directory temp file and rename, so a crash mid-write
-	// leaves the original .env intact rather than truncated.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".env.cred-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.WriteString(b.String()); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-
-	perm := mode
-	if !created {
-		if fi, statErr := os.Stat(path); statErr == nil {
-			perm = fi.Mode().Perm()
+		// Refuse rather than guess: .env loaders don't agree on which
+		// occurrence of a duplicate key wins, so writing into one
+		// occurrence risks silently updating a value the loader ignores.
+		// Nothing is written to disk in this case.
+		if matches > 1 {
+			return fmt.Errorf("key %q appears %d times in %s; remove the duplicate before writing to it — which occurrence a .env loader honors is not portable", key, matches, path)
 		}
 	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
+	if !replaced {
+		b.WriteString(assignment + eol)
 	}
-	return os.Rename(tmpName, path)
+
+	return writeFileAtomic(path, []byte(b.String()), mode, created)
 }
 
 // quoteEnv quotes only when the value would otherwise be misread. An unquoted
@@ -114,14 +164,30 @@ func GetEnvKey(path, key string) (string, error) {
 		return "", err
 	}
 	re := keyLine(key)
-	sc := bufio.NewScanner(strings.NewReader(string(b)))
+	sc := newScanner(b)
+	matches := 0
+	var value string
 	for sc.Scan() {
 		if re.MatchString(sc.Text()) {
+			matches++
 			_, v, _ := strings.Cut(sc.Text(), "=")
-			return unquoteEnv(strings.TrimSpace(v)), nil
+			value = v
 		}
 	}
-	return "", fmt.Errorf("key %q is not set in %s", key, path)
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	switch matches {
+	case 0:
+		return "", fmt.Errorf("key %q is not set in %s", key, path)
+	case 1:
+		return unquoteEnv(strings.TrimSpace(value)), nil
+	default:
+		// Same refusal as SetEnvKey, and for the same reason: which
+		// occurrence a .env loader honors is not portable, so reading one
+		// occurrence risks reporting a value the loader doesn't actually use.
+		return "", fmt.Errorf("key %q appears %d times in %s; remove the duplicate before reading it — which occurrence a .env loader honors is not portable", key, matches, path)
+	}
 }
 
 func unquoteEnv(v string) string {
@@ -135,24 +201,28 @@ func unquoteEnv(v string) string {
 	return v
 }
 
-// RemoveEnvKey drops key's line from path, leaving the rest untouched.
+// RemoveEnvKey drops key's line from path, leaving the rest untouched. Unlike
+// SetEnvKey and GetEnvKey, it deletes every occurrence of a duplicate key
+// rather than refusing: that outcome is unambiguous, and it's the user's
+// escape hatch out of a duplicate-key file the other two functions won't
+// touch.
 func RemoveEnvKey(path, key string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
+	eol := detectEOL(b)
 	re := keyLine(key)
 	var out strings.Builder
-	sc := bufio.NewScanner(strings.NewReader(string(b)))
+	sc := newScanner(b)
 	for sc.Scan() {
 		if re.MatchString(sc.Text()) {
 			continue
 		}
-		out.WriteString(sc.Text() + "\n")
+		out.WriteString(sc.Text() + eol)
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
+	if err := sc.Err(); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(out.String()), fi.Mode().Perm())
+	return writeFileAtomic(path, []byte(out.String()), 0, false)
 }
