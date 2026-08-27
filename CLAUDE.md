@@ -23,15 +23,24 @@ deliberately does not do."
   precede the path), `runSet`/`runShow`/`runRm`, `expandTilde` (handles a
   quoted leading `~/`, since an unquoted `~` is already expanded by the
   shell before cred ever sees it), and the exit-code/error-message surface.
-  `runShow` distinguishes `os.ErrNotExist` (reported as `MISSING`) from any
-  other `Stat` error (EACCES on a parent dir, ELOOP, …), which is reported
-  as its own runtime error rather than `MISSING` — conflating the two would
-  point someone at `cred set` to "fix" a credential that is actually present
-  but merely unreadable, overwriting it. `runRm --name` checks
-  `store.HasEnvKey` before calling `store.RemoveEnvKey`, because
-  `RemoveEnvKey` rewrites the file unconditionally (new inode, bumped mtime)
-  even when the key was already absent; gating on presence first is what
-  lets "nothing removed" (exit 1) also mean "nothing was touched."
+  `reportMissing` and `refuseNonRegular` are shared by all three commands so
+  they stay in agreement: an absent path is `Lstat`'s `os.ErrNotExist`,
+  reported as `MISSING` on stdout (any other `Lstat` error — EACCES on a
+  parent dir, ELOOP, … — is a runtime error on stderr instead, since
+  reporting it as `MISSING` would point someone at `cred set` to "fix" a
+  credential that is actually present but merely unreadable, overwriting
+  it); a path that exists but isn't a regular file — a directory, or a
+  symlink judged by `Lstat` rather than resolved to its target — is refused
+  before `set` would `Rename` onto it, `show` would `read` it, or `rm` would
+  unlink it. `runRm --name` checks `store.HasEnvKey` before calling
+  `store.RemoveEnvKey`, because `RemoveEnvKey` rewrites the file
+  unconditionally (new inode, bumped mtime) even when the key was already
+  absent; gating on presence first is what lets "nothing removed" (exit 1)
+  also mean "nothing was touched." `expandTilde`'s `~user` rejection carries
+  a sentinel error (`errUnsupportedTildeUser`) distinct from a genuine
+  `os.UserHomeDir` failure, so `parsePathCommand` can return the former as a
+  usage error (2) and the latter as a runtime error (1) despite sharing one
+  return path.
 - `internal/secret` — acquires a value. `FromTTY` reads `/dev/tty` directly
   (not stdin) with echo disabled, so prompting still works when stdin is a
   pipe; `FromCommand` runs `sh -c <cmd>` and takes its stdout. Both trim a
@@ -49,13 +58,23 @@ deliberately does not do."
 
 ## The invariant
 
-A credential value may reach exactly two places: a file, and a child
-process's stdin (via `sh -c` in `FromCommand` — the value never becomes an
-argument, since it flows through the pipe, not `argv`). It must never reach
-argv, a log, or stdout. **`cred get` was considered and deliberately
-rejected** — printing a value to stdout is exactly how it ends up in a shell
-history, a log, or an agent's transcript. Do not add it. `cred show`/`--name`
-report path, mode, size, and fingerprint — never the value.
+A credential value may reach exactly one place cred itself writes it to: a
+destination file. It arrives in cred's own memory one of two ways — typed at
+a hidden prompt read directly from `/dev/tty` (`FromTTY`), or captured from
+a child command's **stdout** through a pipe (`FromCommand`, via `sh -c
+<cmd>`). cred never writes a value *into* a child process — `FromCommand`
+only ever reads one back out. It must never reach cred's own argv, a log, or
+stdout. **`cred get` was considered and deliberately rejected** — printing a
+value to stdout is exactly how it ends up in a shell history, a log, or an
+agent's transcript. Do not add it. `cred show`/`--name` report path, mode,
+size, and fingerprint — never the value.
+
+The one place this invariant is at the user's mercy rather than cred's: the
+*command string* passed to `--value-from` must itself fetch the value (`op
+read op://vault/item/field`), never contain it (`echo sk-live-...`) — a
+command that contains the credential puts it in cred's own `os.Args` before
+`FromCommand` ever runs, which no amount of care inside `FromCommand` can
+undo.
 
 ## Duplicate `.env` keys are refused, not guessed (design decision)
 
