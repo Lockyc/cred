@@ -322,6 +322,19 @@ func TestSetUserHomeDirFailureIsRuntimeErrorNotAJunkPath(t *testing.T) {
 	}
 }
 
+// Unlike TestSetUserHomeDirFailureIsRuntimeErrorNotAJunkPath just above —
+// where UserHomeDir itself fails, a genuine runtime error — a `~user` form
+// is a malformed argument expandTilde already refuses on its own terms. It
+// must be a usage error (2), not lumped in with the runtime-error path (1)
+// that the two share today.
+func TestSetOtherUsersHomeIsUsageError(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"set", "~alice/x", "--value-from", "printf 'cal_live_abc'"}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+}
+
 // --- show and rm ---
 
 func TestShowReportsWithoutTheValue(t *testing.T) {
@@ -499,7 +512,12 @@ func TestRmRemovesOnlyTheNamedEnvKey(t *testing.T) {
 	}
 }
 
-func TestRmMissingFileIsRuntimeError(t *testing.T) {
+// rm on an absent path must report MISSING the same way show does — same
+// stream (stdout), same word — rather than a raw "no such file" on stderr.
+// Exit code alone doesn't discriminate this (both the old and new behaviour
+// return 1); the stdout/MISSING assertions are what would have caught the
+// old divergence.
+func TestRmMissingFileReportsMissingOnStdout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nope")
 	var out, errOut bytes.Buffer
 	code := run([]string{"rm", path}, &out, &errOut)
@@ -508,6 +526,30 @@ func TestRmMissingFileIsRuntimeError(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "removed") {
 		t.Fatalf("stdout claims a removal that didn't happen: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "MISSING") {
+		t.Fatalf("want a MISSING report on stdout, got stdout:\n%s\nstderr:\n%s", out.String(), errOut.String())
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want nothing — MISSING is curated, not a raw error", errOut.String())
+	}
+}
+
+// The same MISSING/stdout report applies to `rm --name`, whose absent-file
+// case previously reached HasEnvKey's raw os.ReadFile error on stderr
+// instead of the curated report show and whole-file rm both use.
+func TestRmNameOnMissingFileReportsMissingOnStdout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	var out, errOut bytes.Buffer
+	code := run([]string{"rm", path, "--name", "API_KEY"}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "MISSING") {
+		t.Fatalf("want a MISSING report on stdout, got stdout:\n%s\nstderr:\n%s", out.String(), errOut.String())
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want nothing — MISSING is curated, not a raw error", errOut.String())
 	}
 }
 
@@ -527,6 +569,91 @@ func TestRmRefusesADirectory(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "removed") {
 		t.Fatalf("stdout claims a removal that must not have happened: %q", out.String())
+	}
+}
+
+// Before the fix, `set` on a directory reached os.Rename inside
+// writeFileAtomic and surfaced a raw "rename ...: is a directory" error —
+// still exit 1, but not in cred's own voice. It's also checked up front, so
+// no TTY prompt happens first (no --value-from is passed here on purpose:
+// if the check ran too late, this would hang or fail on "needs a terminal"
+// instead of the curated refusal).
+func TestSetRefusesADirectory(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "somedir")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"set", target}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "not a regular file") {
+		t.Fatalf("stderr = %q, want cred's own curated refusal, not a raw OS error", errOut.String())
+	}
+	fi, err := os.Stat(target)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("target is no longer the directory it was: %v", err)
+	}
+}
+
+// Before the fix, `show` on a directory reached store.ReadFile's raw
+// "read ...: is a directory" error instead of a curated refusal matching
+// rm's.
+func TestShowRefusesADirectory(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "somedir")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"show", target}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "not a regular file") {
+		t.Fatalf("stderr = %q, want cred's own curated refusal, not a raw OS error", errOut.String())
+	}
+	if strings.Contains(out.String(), "MISSING") {
+		t.Fatalf("a directory was reported as MISSING: %q", out.String())
+	}
+}
+
+// set and show refuse a symlink the same way rm does (TestRmRefusesA
+// SymlinkAndLeavesTargetInPlace) — cred never follows a symlink to write or
+// read through it, so the three commands agree on what "not a regular file"
+// covers.
+func TestSetAndShowRefuseASymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("cal_live_secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	var setOut, setErr bytes.Buffer
+	if code := run([]string{"set", link}, &setOut, &setErr); code != 1 {
+		t.Fatalf("set: exit = %d, want 1 (stdout: %s, stderr: %s)", code, setOut.String(), setErr.String())
+	}
+	if !strings.Contains(setErr.String(), "not a regular file") {
+		t.Fatalf("set stderr = %q, want the curated refusal", setErr.String())
+	}
+
+	var showOut, showErr bytes.Buffer
+	if code := run([]string{"show", link}, &showOut, &showErr); code != 1 {
+		t.Fatalf("show: exit = %d, want 1 (stdout: %s, stderr: %s)", code, showOut.String(), showErr.String())
+	}
+	if !strings.Contains(showErr.String(), "not a regular file") {
+		t.Fatalf("show stderr = %q, want the curated refusal", showErr.String())
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != "cal_live_secret\n" {
+		t.Fatalf("target changed: %q, %v", got, err)
 	}
 }
 

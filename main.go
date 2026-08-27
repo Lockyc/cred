@@ -28,6 +28,28 @@ Run 'cred <command> -h' for the options of one command.
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
+// reportMissing prints the curated "credential absent" report that show and
+// rm agree on. It goes on stdout, not stderr: MISSING is an expected outcome
+// cred is built to report cleanly — the human's next move is usually
+// `cred set` — not a runtime failure, which stays on stderr.
+func reportMissing(stdout io.Writer, path string) {
+	fmt.Fprintf(stdout, "cred: MISSING — %s does not exist\n", path)
+}
+
+// refuseNonRegular reports (and prints) whether path is something other than
+// a regular file — a directory, a symlink, a device — so set, show and rm
+// all refuse in the same voice instead of a raw OS error surfacing from
+// whatever they'd otherwise attempt (a rename, a read, an unlink). fi must
+// come from Lstat, not Stat, so a symlink is judged by its own type rather
+// than resolved to whatever it points at.
+func refuseNonRegular(stderr io.Writer, op, path string, fi os.FileInfo) bool {
+	if fi.Mode().IsRegular() {
+		return false
+	}
+	fmt.Fprintf(stderr, "cred: %s is not a regular file — refusing to %s\n", path, op)
+	return true
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -57,7 +79,9 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	key := fs.String("name", "", "set this KEY inside a .env file instead of writing the whole file")
 	expect := fs.String("expect-prefix", "", "refuse the value unless it starts with this")
 	modeStr := fs.String("mode", "600", "octal file mode")
-	valueFrom := fs.String("value-from", "", "run this command and use its stdout as the value")
+	valueFrom := fs.String("value-from", "", "run this command and use its stdout as the value — the command "+
+		"must FETCH the value (e.g. 'op read op://vault/item/field'), never contain it "+
+		"(e.g. 'echo sk-live-...'), or the value ends up in this process's own argv")
 
 	path, ok, code := parsePathCommand("set", "destination path", fs, args, stdout, stderr)
 	if !ok {
@@ -68,6 +92,18 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "cred: --mode %q is not an octal mode\n", *modeStr)
 		return 2
+	}
+
+	// Checked up front, before prompting: a directory or symlink destination
+	// is refused the same way show and rm refuse one, rather than reaching
+	// os.Rename inside writeFileAtomic and surfacing a raw rename error —
+	// and rather than prompting a human for a secret that can't be written
+	// anyway. A path that doesn't exist yet is fine (Lstat's error is
+	// ignored) — that's the normal create case.
+	if fi, err := os.Lstat(path); err == nil {
+		if refuseNonRegular(stderr, "write", path, fi) {
+			return 1
+		}
 	}
 
 	label := path
@@ -119,10 +155,12 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	fi, err := os.Stat(path)
+	// Lstat, not Stat: a symlink is judged by its own type (see
+	// refuseNonRegular) rather than resolved to whatever it points at.
+	fi, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(stdout, "cred: MISSING — %s does not exist\n", path)
+			reportMissing(stdout, path)
 			return 1
 		}
 		// Any other stat error (EACCES on a parent directory, ELOOP, ENOTDIR,
@@ -130,6 +168,9 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		// would send someone to `cred set` and overwrite a live credential
 		// that was merely unreadable.
 		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+	if refuseNonRegular(stderr, "read", path, fi) {
 		return 1
 	}
 	var value string
@@ -160,6 +201,25 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
+	// Checked once, up front, ahead of both the --name and whole-file paths
+	// below — the presence check the invariant comment above `RemoveEnvKey`
+	// gates on, and the same MISSING/non-regular report show uses. Lstat,
+	// not Stat: a symlink is judged by its own type (see refuseNonRegular),
+	// which is what stops rm from unlinking a symlink while leaving the
+	// credential it points at untouched.
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			reportMissing(stdout, path)
+			return 1
+		}
+		fmt.Fprintf(stderr, "cred: %v\n", err)
+		return 1
+	}
+	if refuseNonRegular(stderr, "remove", path, fi) {
+		return 1
+	}
+
 	if *key != "" {
 		present, err := store.HasEnvKey(path, *key)
 		if err != nil {
@@ -169,15 +229,9 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 		// RemoveEnvKey is a documented no-op when the key is absent, but it
 		// still rewrites the file (writeFileAtomic runs regardless) — a new
 		// inode, a bumped mtime, normalised line endings — even though
-		// nothing changed. Presence has to be checked, and gate the call to
-		// RemoveEnvKey, before that write happens: otherwise "nothing
-		// removed" is printed while the file was silently rewritten anyway.
+		// nothing changed. The presence check must gate the call to
+		// RemoveEnvKey, before that write happens.
 		if !present {
-			// Exit 1, not 0: rm claiming to have done something it didn't is
-			// exactly the failure this fixes. This mirrors the whole-file
-			// path below, which also exits 1 when there is nothing at path
-			// to remove — an absent key is the same class of event as an
-			// absent file, not a quiet success.
 			fmt.Fprintf(stderr, "cred: key %s is not set in %s — nothing removed\n", *key, path)
 			return 1
 		}
@@ -189,21 +243,6 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	// Lstat, not Stat: Stat follows a symlink, so a symlink pointing at a
-	// real credential would pass the IsRegular guard below (Stat reports the
-	// target's mode) and os.Remove would unlink the symlink while leaving
-	// the credential at its target untouched — a silent success that isn't
-	// one. Lstat reports the symlink's own type, so it is refused here like
-	// any other non-regular path.
-	fi, err := os.Lstat(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
-	}
-	if !fi.Mode().IsRegular() {
-		fmt.Fprintf(stderr, "cred: %s is not a regular file — refusing to remove\n", path)
-		return 1
-	}
 	if err := os.Remove(path); err != nil {
 		fmt.Fprintf(stderr, "cred: %v\n", err)
 		return 1
@@ -230,6 +269,13 @@ func parsePathCommand(name, pathDesc string, fs *flag.FlagSet, args []string, st
 	path, err := expandTilde(rawPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "cred: %v\n", err)
+		// A ~user form is a malformed argument — the same class of mistake
+		// as a bad --mode — so it's a usage error (2). An os.UserHomeDir
+		// failure sharing this call is a genuine runtime error and stays 1;
+		// errUnsupportedTildeUser is what tells the two apart.
+		if errors.Is(err, errUnsupportedTildeUser) {
+			return "", false, 2
+		}
 		return "", false, 1
 	}
 	return path, true, 0
@@ -296,6 +342,11 @@ func parseFlags(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (ok b
 	return true, 0
 }
 
+// errUnsupportedTildeUser marks the "~user" rejection so parsePathCommand can
+// tell it apart from a genuine os.UserHomeDir failure — the same expandTilde
+// error return covers both, but only the latter is a runtime error.
+var errUnsupportedTildeUser = errors.New("only ~/ is supported, not another user's home directory")
+
 // expandTilde handles a leading ~/ that arrived quoted. An unquoted ~ is
 // expanded by the shell, but a pasted path is often quoted and would
 // otherwise create a literal "~" directory — so this must fail closed rather
@@ -311,7 +362,7 @@ func expandTilde(p string) (string, error) {
 		return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/")), nil
 	}
 	if strings.HasPrefix(p, "~") {
-		return "", fmt.Errorf("%q: only ~/ is supported, not another user's home directory", p)
+		return "", fmt.Errorf("%q: %w", p, errUnsupportedTildeUser)
 	}
 	return p, nil
 }
