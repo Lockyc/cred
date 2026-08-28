@@ -42,10 +42,23 @@ deliberately does not do."
   usage error (2) and the latter as a runtime error (1) despite sharing one
   return path.
 - `internal/secret` — acquires a value. `FromTTY` reads `/dev/tty` directly
-  (not stdin) with echo disabled, so prompting still works when stdin is a
-  pipe; `FromCommand` runs `sh -c <cmd>` and takes its stdout. Both trim a
-  trailing `\r\n` and reject an empty result (`ErrEmpty`) — an empty write is
-  always a mis-paste or a failed command, never intentional.
+  (not stdin), so prompting still works when stdin is a pipe; `FromCommand`
+  runs `sh -c <cmd>` and takes its stdout. Both trim a trailing `\r\n` and
+  reject an empty result (`ErrEmpty`) — an empty write is always a mis-paste
+  or a failed command, never intentional. `FromTTY` puts the terminal in raw
+  mode and echoes one `●` per rune entered rather than staying silent — a
+  fully silent prompt (the prior behaviour, `golang.org/x/term`'s
+  `ReadPassword`) gives the operator no way to tell a registered keystroke
+  from a dropped one, which defeats a tool whose whole point is confirming a
+  value landed. Ctrl-C, and Ctrl-D on empty input, abort (`ErrAborted`) and
+  write nothing; the terminal is restored via `defer term.Restore`
+  immediately after `term.MakeRaw`, so every exit path — abort, a mid-read
+  error, success — leaves the terminal usable afterwards. All the actual
+  rune-counting/backspace/abort/terminator logic lives in
+  `keyreader.go`'s `keyState.feed`, a pure function with no terminal
+  dependency, precisely because `FromTTY` itself needs a real terminal and
+  so cannot be unit-tested — `keyState` is what gives that logic coverage at
+  all.
 - `internal/store` — `file.go` (`WriteFile`/`ReadFile`, a whole-file
   destination) and `envfile.go` (`SetEnvKey`/`GetEnvKey`/`HasEnvKey`/
   `RemoveEnvKey`, a single `.env` key, comment/ordering-preserving). Both

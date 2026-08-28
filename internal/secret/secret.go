@@ -18,6 +18,10 @@ import (
 // exactly like a valid one to whatever reads it next.
 var ErrEmpty = errors.New("empty value")
 
+// ErrAborted means the user aborted the hidden prompt (Ctrl-C, or Ctrl-D on
+// empty input). Nothing is written on this path.
+var ErrAborted = errors.New("aborted")
+
 // Trim removes trailing newlines and carriage returns and nothing else. A value
 // from `cat file` or a command's stdout almost always carries a trailing
 // newline that is not part of the credential; a CR arrives from a CRLF paste.
@@ -46,8 +50,19 @@ func FromCommand(cmd string) (string, error) {
 	return v, nil
 }
 
-// FromTTY prompts on the controlling terminal with echo disabled. It reads from
-// /dev/tty rather than stdin so it still works when stdin is a pipe.
+// FromTTY prompts on the controlling terminal with each entered rune masked
+// as ● (U+25CF), never the rune itself. It reads from /dev/tty rather than
+// stdin so it still works when stdin is a pipe.
+//
+// A silent prompt — the previous behaviour, golang.org/x/term's
+// ReadPassword — gives the operator no way to tell a registered keystroke
+// from a dropped one: zero characters and forty look identical. The whole
+// point of cred is giving the human confidence the credential landed, so
+// going silent at the moment they enter it undercuts that. All the
+// character-accounting logic (rune counting, backspace, abort, terminators)
+// lives in keyState.feed (keyreader.go), a pure function with no terminal
+// dependency — FromTTY itself needs a real terminal and so cannot be
+// unit-tested; that's exactly why the logic doesn't live here.
 func FromTTY(prompt string) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -55,13 +70,49 @@ func FromTTY(prompt string) (string, error) {
 	}
 	defer tty.Close()
 
-	fmt.Fprintf(tty, "%s: ", prompt)
-	raw, err := term.ReadPassword(int(tty.Fd()))
-	fmt.Fprintln(tty)
+	fd := int(tty.Fd())
+	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return "", fmt.Errorf("reading from terminal: %w", err)
 	}
-	v := Trim(string(raw))
+	// Restored on every exit path from here down, including abort and error
+	// returns — a raw terminal left unrestored breaks every command typed
+	// into it afterwards.
+	defer term.Restore(fd, oldState)
+
+	fmt.Fprintf(tty, "%s: ", prompt)
+
+	k := newKeyState()
+	buf := make([]byte, 256)
+	var aborted bool
+readLoop:
+	for {
+		n, err := tty.Read(buf)
+		if n > 0 {
+			out, done, abort := k.feed(buf[:n])
+			if len(out) > 0 {
+				tty.Write(out)
+			}
+			if abort {
+				aborted = true
+				break readLoop
+			}
+			if done {
+				break readLoop
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(tty)
+			return "", fmt.Errorf("reading from terminal: %w", err)
+		}
+	}
+	fmt.Fprintln(tty)
+
+	if aborted {
+		return "", ErrAborted
+	}
+
+	v := Trim(k.value())
 	if v == "" {
 		return "", ErrEmpty
 	}

@@ -46,10 +46,13 @@ Flags may appear before or after the path (`cred set --name KEY <path>` and
 `cred set <path> --name KEY` both work). Run `cred <command> -h` for a
 command's own option list.
 
-**`set`** prompts on the controlling terminal with echo disabled (reads
-`/dev/tty`, so it works even when stdin is piped) and writes the value to
-`<path>`. `--value-from '<command>'` reads the value from another command's
-stdout instead of prompting.
+**`set`** prompts on the controlling terminal (reads `/dev/tty`, so it works
+even when stdin is piped) and writes the value to `<path>`. Each character
+you type or paste is echoed as `●`, never the character itself, so you can
+tell your input registered without it ever appearing on screen.
+`--value-from '<command>'` reads the value from another command's stdout
+instead of prompting. Ctrl-C, or Ctrl-D on an empty prompt, aborts and
+writes nothing.
 
 **`--value-from` must name a command that *fetches* the value, never one
 that *contains* it.** `cred`'s entire purpose is keeping the credential out
@@ -69,7 +72,7 @@ Worked example — a standalone credential file:
 
 ```console
 $ cred set ~/.config/example/token --expect-prefix tok_
-Value for /home/you/.config/example/token: 
+Value for /home/you/.config/example/token: ●●●●●●●●●●●●●●●●●●●●●●●●●●
 cred: OK
   path         /home/you/.config/example/token
   mode         600
@@ -80,7 +83,9 @@ cred: OK
 Paste this block back to the agent.
 ```
 
-Your input is not echoed to the terminal, so the prompt appears with nothing following it.
+Each character you type or paste is echoed as `●`, one per rune — never the
+character itself — so you can see your input registered without it ever
+appearing on screen. Backspace erases one `●` per rune removed.
 
 ```console
 $ cred show ~/.config/example/token
@@ -109,7 +114,7 @@ every other key) is left untouched:
 
 ```console
 $ cred set ~/project/.env --name API_KEY --expect-prefix sk_
-Value for API_KEY: 
+Value for API_KEY: ●●●●●●●●●●●●●●●●●●●●●●●●●●●●
 cred: OK
   path         /home/you/project/.env
   key          API_KEY
@@ -121,7 +126,7 @@ cred: OK
 Paste this block back to the agent.
 ```
 
-Again, your input is not echoed.
+Again, each character is masked, never echoed as typed.
 
 `cred rm ~/project/.env --name API_KEY` removes just that line; on a key
 that isn't set, it reports nothing was removed and exits 1 without touching
