@@ -2,34 +2,61 @@ package secret
 
 import "unicode/utf8"
 
-// maskRune is echoed once per rune entered at a hidden prompt, in place of
-// the rune itself — never the character typed. A silent prompt (the previous
-// behaviour, golang.org/x/term's ReadPassword) gives the operator no way to
-// tell a registered keystroke from a dropped one; a mask per rune does.
+// maskRune is echoed once per accumulated unit entered at a hidden prompt, in
+// place of the unit itself — never the character typed. A silent prompt (the
+// previous behaviour, golang.org/x/term's ReadPassword) gives the operator no
+// way to tell a registered keystroke from a dropped one; a mask per unit
+// does.
 const maskRune = '●' // U+25CF BLACK CIRCLE
 
 // eraseSeq is written to erase one mask from the terminal on backspace:
 // move back over it, overwrite with a space, move back again.
 var eraseSeq = []byte("\b \b")
 
+// escState tracks progress through an ANSI escape sequence (arrow keys,
+// function keys) so it can be consumed rather than injecting its printable
+// tail into the credential. It persists across feed calls exactly like pend,
+// since a sequence can be split across terminal read chunks.
+type escState int
+
+const (
+	escNone escState = iota
+	escSawEsc
+	escCSI
+	escSS3
+)
+
 // keyState is the pure, terminal-free byte-processing core behind FromTTY.
 // FromTTY itself needs a real terminal and so cannot be unit-tested; every
 // rule about what counts as input, a backspace, an abort, or the end of
 // input lives here instead, where it can be.
 type keyState struct {
-	runes []rune
+	// units holds the accumulated value, one entry per displayed mask: a
+	// complete valid rune's bytes, or a single undecodable byte. Bytes, not
+	// runes, so an invalid or binary paste is preserved byte-identical
+	// rather than corrupted to U+FFFD — see value().
+	units [][]byte
 	pend  []byte // bytes of a multi-byte rune split across reads, not yet complete
+	esc   escState
 }
 
 func newKeyState() *keyState {
 	return &keyState{}
 }
 
-// value returns the runes accumulated so far. It never includes a control
-// byte, the mask character, or a terminator — those are all consumed by feed
-// without being appended to runes.
+// value returns the bytes accumulated so far, concatenated in entry order.
+// The result is not validated as UTF-8 and may contain whatever invalid or
+// binary bytes were actually typed or pasted — the value must be
+// byte-identical to the input, never "corrected" toward valid UTF-8. It
+// never includes an intercepted control byte (Ctrl-C/D, CR/LF, DEL/BS), a
+// consumed ANSI escape sequence (arrow/function keys), a bare C0 control
+// byte, the mask character, or a terminator — those never become units.
 func (k *keyState) value() string {
-	return string(k.runes)
+	var buf []byte
+	for _, u := range k.units {
+		buf = append(buf, u...)
+	}
+	return string(buf)
 }
 
 // feed processes one chunk of raw terminal bytes (raw mode: no line
@@ -51,21 +78,68 @@ func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 	i := 0
 	for i < len(data) {
 		b := data[i]
+
+		// Continue an in-progress ANSI escape sequence (CSI: ESC '[' ...
+		// final byte in 0x40-0x7E, e.g. arrow keys; SS3: ESC 'O' + one byte,
+		// e.g. F1-F4). Neither the ESC nor any byte it swallows is ever
+		// masked or accumulated.
+		if k.esc != escNone {
+			switch k.esc {
+			case escSawEsc:
+				switch b {
+				case '[':
+					k.esc = escCSI
+					i++
+				case 'O':
+					k.esc = escSS3
+					i++
+				default:
+					// Not a recognised sequence — the ESC itself is still
+					// dropped (it's a C0 control byte), and b is reprocessed
+					// normally below rather than swallowed.
+					k.esc = escNone
+				}
+			case escSS3:
+				k.esc = escNone
+				i++
+			case escCSI:
+				i++
+				if b >= 0x40 && b <= 0x7E {
+					k.esc = escNone
+				}
+			}
+			continue
+		}
+
 		switch {
 		case b == 0x03: // Ctrl-C
 			return out, false, true
 		case b == 0x04: // Ctrl-D
-			if len(k.runes) == 0 {
+			if len(k.units) == 0 {
 				return out, false, true
 			}
 			return out, true, false
 		case b == '\r' || b == '\n':
+			// A trailing partial multi-byte sequence still in pend must
+			// survive rather than be silently dropped: append each of its
+			// bytes as its own unit.
+			for _, pb := range k.pend {
+				k.units = append(k.units, []byte{pb})
+			}
+			k.pend = nil
 			return out, true, false
 		case b == 0x7F || b == 0x08: // DEL or BS
-			if len(k.runes) > 0 {
-				k.runes = k.runes[:len(k.runes)-1]
+			if len(k.units) > 0 {
+				k.units = k.units[:len(k.units)-1]
 				out = append(out, eraseSeq...)
 			}
+			i++
+		case b == 0x1B: // ESC — start of a possible ANSI sequence
+			k.esc = escSawEsc
+			i++
+		case b < 0x20:
+			// Any other C0 control byte (e.g. Tab): ignored outright — no
+			// mask, no accumulation, and no way for it to reach the file.
 			i++
 		default:
 			if !utf8.FullRune(data[i:]) {
@@ -78,7 +152,17 @@ func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 				break
 			}
 			r, size := utf8.DecodeRune(data[i:])
-			k.runes = append(k.runes, r)
+			if r == utf8.RuneError && size == 1 {
+				// An invalid byte, not a genuine encoding of U+FFFD. Keep it
+				// verbatim as its own one-byte unit rather than substituting
+				// the replacement character — corrupting it here would mean
+				// the file ends up holding a different value than was
+				// entered, while the mask count told the operator otherwise.
+				size = 1
+			}
+			unit := make([]byte, size)
+			copy(unit, data[i:i+size])
+			k.units = append(k.units, unit)
 			out = append(out, string(maskRune)...)
 			i += size
 		}

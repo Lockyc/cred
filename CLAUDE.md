@@ -54,11 +54,23 @@ deliberately does not do."
   write nothing; the terminal is restored via `defer term.Restore`
   immediately after `term.MakeRaw`, so every exit path — abort, a mid-read
   error, success — leaves the terminal usable afterwards. All the actual
-  rune-counting/backspace/abort/terminator logic lives in
-  `keyreader.go`'s `keyState.feed`, a pure function with no terminal
-  dependency, precisely because `FromTTY` itself needs a real terminal and
-  so cannot be unit-tested — `keyState` is what gives that logic coverage at
-  all.
+  accounting logic (backspace/abort/terminator, ANSI-escape consumption,
+  invalid-UTF-8 handling) lives in `keyreader.go`'s `keyState.feed`, a pure
+  function with no terminal dependency, precisely because `FromTTY` itself
+  needs a real terminal and so cannot be unit-tested — `keyState` is what
+  gives that logic coverage at all. `keyState` accumulates **bytes, not
+  runes** (`units [][]byte`, one entry per displayed mask — either one
+  complete valid rune or one undecodable byte): a rune-based accumulator
+  would silently substitute U+FFFD for any invalid byte, making the file
+  hold a different value than was typed while the mask count told the
+  operator otherwise. Every write to `tty` while raw mode is in effect uses
+  `\r\n`, never a bare `\n` — `MakeRaw` clears `OPOST`, so a bare `\n` moves
+  down a line without returning to column 0, indenting everything printed
+  after under the last mask.
+  **Known gap:** an external SIGTERM/SIGINT delivered to the process group
+  (not an in-terminal Ctrl-C, which is read as a byte since `ISIG` is off)
+  leaves the terminal in raw mode — there is no `signal.Notify` handler, by
+  design; the window is narrow and not worth the added complexity.
 - `internal/store` — `file.go` (`WriteFile`/`ReadFile`, a whole-file
   destination) and `envfile.go` (`SetEnvKey`/`GetEnvKey`/`HasEnvKey`/
   `RemoveEnvKey`, a single `.env` key, comment/ordering-preserving). Both

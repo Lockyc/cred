@@ -59,8 +59,9 @@ func FromCommand(cmd string) (string, error) {
 // from a dropped one: zero characters and forty look identical. The whole
 // point of cred is giving the human confidence the credential landed, so
 // going silent at the moment they enter it undercuts that. All the
-// character-accounting logic (rune counting, backspace, abort, terminators)
-// lives in keyState.feed (keyreader.go), a pure function with no terminal
+// character-accounting logic (unit counting, backspace, abort, terminators,
+// escape-sequence and invalid-UTF-8 handling) lives in keyState.feed
+// (keyreader.go), a pure function with no terminal
 // dependency — FromTTY itself needs a real terminal and so cannot be
 // unit-tested; that's exactly why the logic doesn't live here.
 func FromTTY(prompt string) (string, error) {
@@ -102,11 +103,17 @@ readLoop:
 			}
 		}
 		if err != nil {
-			fmt.Fprintln(tty)
+			// term.Restore hasn't run yet (it's deferred, not yet reached),
+			// so the tty is still in raw mode here: MakeRaw clears OPOST, so
+			// a bare \n moves down a line without a carriage return, leaving
+			// the shell prompt and everything printed after indented under
+			// the last mask. \r\n is required on every write to tty while
+			// raw is in effect.
+			fmt.Fprint(tty, "\r\n")
 			return "", fmt.Errorf("reading from terminal: %w", err)
 		}
 	}
-	fmt.Fprintln(tty)
+	fmt.Fprint(tty, "\r\n")
 
 	if aborted {
 		return "", ErrAborted
