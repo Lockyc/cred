@@ -79,8 +79,6 @@ cred: OK
   bytes        26
   fingerprint  97d90e6a6af2
   prefix       tok_ ✓
-
-Paste this block back to the agent.
 ```
 
 Each character you type or paste is echoed as `●`, one per rune — never the
@@ -122,8 +120,6 @@ cred: OK
   bytes        28
   fingerprint  46c0a14c6781
   prefix       sk_ ✓
-
-Paste this block back to the agent.
 ```
 
 Again, each character is masked, never echoed as typed.
@@ -147,8 +143,6 @@ cred: OK
   bytes        26
   fingerprint  97d90e6a6af2
   prefix       tok_ ✓
-
-Paste this block back to the agent.
 ```
 
 The agent learns the path, file mode, byte count, and a 12-hex-character

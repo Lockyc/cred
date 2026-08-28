@@ -48,8 +48,8 @@ func TestSetWritesFileAndPrintsReceipt(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "cred: OK") || !strings.Contains(out.String(), "Paste this block back") {
-		t.Fatalf("receipt missing the OK header or paste-back line:\n%s", out.String())
+	if !strings.Contains(out.String(), "cred: OK") {
+		t.Fatalf("receipt missing the OK header:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), row("path", path)) {
 		t.Fatalf("receipt missing path row %q:\n%s", row("path", path), out.String())

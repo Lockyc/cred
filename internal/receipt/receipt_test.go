@@ -30,10 +30,10 @@ func TestFingerprintNeverContainsTheValue(t *testing.T) {
 	}
 }
 
-func TestRenderSetIncludesPasteBackLine(t *testing.T) {
+func TestRenderSetRendersHeaderAndAllRows(t *testing.T) {
 	r := Receipt{Path: "/tmp/k", Mode: "600", Bytes: 41, Fingerprint: "a3f91c04e7b2"}
 	out := r.RenderSet()
-	for _, want := range []string{"cred: OK", "/tmp/k", "600", "41", "a3f91c04e7b2", "Paste this block back"} {
+	for _, want := range []string{"cred: OK", "/tmp/k", "600", "41", "a3f91c04e7b2"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("RenderSet() missing %q:\n%s", want, out)
 		}
@@ -60,14 +60,11 @@ func TestRenderSetShowsKeyAndPrefixWhenSet(t *testing.T) {
 	}
 }
 
-func TestRenderShowHasModifiedAndNoPasteLine(t *testing.T) {
+func TestRenderShowHasModified(t *testing.T) {
 	r := Receipt{Path: "/tmp/k", Mode: "600", Bytes: 41,
 		Fingerprint: "a3f91c04e7b2", Modified: "2026-08-27 17:04:23"}
 	out := r.RenderShow()
 	if !strings.Contains(out, "2026-08-27 17:04:23") {
 		t.Fatalf("missing modified:\n%s", out)
-	}
-	if strings.Contains(out, "Paste this block back") {
-		t.Fatalf("show must not ask for a paste-back:\n%s", out)
 	}
 }

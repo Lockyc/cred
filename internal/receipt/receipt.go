@@ -52,12 +52,10 @@ func (r Receipt) lines() []string {
 
 // RenderSet is printed after a successful write.
 func (r Receipt) RenderSet() string {
-	return "cred: OK\n" + strings.Join(r.lines(), "\n") +
-		"\n\nPaste this block back to the agent.\n"
+	return "cred: OK\n" + strings.Join(r.lines(), "\n") + "\n"
 }
 
-// RenderShow is printed by `cred show`. No paste-back prompt: show is a lookup,
-// not a handshake.
+// RenderShow is printed by `cred show`.
 func (r Receipt) RenderShow() string {
 	return "cred: present\n" + strings.Join(r.lines(), "\n") + "\n"
 }
