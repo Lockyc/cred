@@ -67,10 +67,8 @@ deliberately does not do."
   `\r\n`, never a bare `\n` — `MakeRaw` clears `OPOST`, so a bare `\n` moves
   down a line without returning to column 0, indenting everything printed
   after under the last mask.
-  **Known gap:** an external SIGTERM/SIGINT delivered to the process group
-  (not an in-terminal Ctrl-C, which is read as a byte since `ISIG` is off)
-  leaves the terminal in raw mode — there is no `signal.Notify` handler, by
-  design; the window is narrow and not worth the added complexity.
+  **Known gap:** an external SIGTERM/SIGINT leaves the terminal raw — see
+  `docs/roadmap.md`, which owns the rationale and unlock condition.
 - `internal/store` — `file.go` (`WriteFile`/`ReadFile`, a whole-file
   destination) and `envfile.go` (`SetEnvKey`/`GetEnvKey`/`HasEnvKey`/
   `RemoveEnvKey`, a single `.env` key, comment/ordering-preserving). Both
@@ -158,6 +156,13 @@ root `VERSION` file is the single source of truth, embedded via
 step — never restate the version elsewhere. Cutting a release: bump
 `VERSION`, commit, tag `v<VERSION>`, and publish a GitHub release
 (`gh release create`) with hand-written notes summarising what shipped.
+
+## Deferred work
+
+`docs/roadmap.md` holds the work that is deliberately not done yet, each
+entry with its rationale and unlock condition. Read it before concluding a
+gap is an oversight — and add to it, rather than to this file, when a
+deferral is the outcome of a change.
 
 ## Build & test
 
