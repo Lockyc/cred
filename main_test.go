@@ -784,3 +784,34 @@ func TestRmHelpPrintsUsageToStdoutAndExitsZero(t *testing.T) {
 		t.Fatalf("stdout = %q, want the rm flag set's usage", out.String())
 	}
 }
+
+func TestSetNonNotExistStatErrorIsRefusedBeforeAcquiringTheValue(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permission bits don't block stat")
+	}
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) }) // let t.TempDir() clean up
+
+	// The marker file proves ordering: --value-from runs only if cred got
+	// past the Lstat check, so its absence is what distinguishes "refused up
+	// front" from "acquired the value, then failed to write it" — the latter
+	// being, at an interactive prompt, a human typing a credential that could
+	// never have landed.
+	marker := filepath.Join(dir, "acquired")
+	var out, errOut bytes.Buffer
+	code := run([]string{"set", filepath.Join(locked, "key"),
+		"--value-from", "touch " + marker + "; printf 'cal_live_abc'"}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stdout: %s, stderr: %s)", code, out.String(), errOut.String())
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the value was acquired before the unwritable destination was refused")
+	}
+	if !strings.Contains(errOut.String(), "permission denied") {
+		t.Fatalf("stderr = %q, want the underlying \"permission denied\" stat error surfaced", errOut.String())
+	}
+}

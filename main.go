@@ -98,12 +98,18 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	// is refused the same way show and rm refuse one, rather than reaching
 	// os.Rename inside writeFileAtomic and surfacing a raw rename error —
 	// and rather than prompting a human for a secret that can't be written
-	// anyway. A path that doesn't exist yet is fine (Lstat's error is
-	// ignored) — that's the normal create case.
-	if fi, err := os.Lstat(path); err == nil {
-		if refuseNonRegular(stderr, "write", path, fi) {
+	// anyway. os.ErrNotExist is the normal create case and the only ignored
+	// error: every other Lstat failure (EACCES on a parent directory,
+	// ENOTDIR, ELOOP, ...) is one the write would hit too, so it is reported
+	// here rather than after a human has typed a credential that can never
+	// land.
+	if fi, err := os.Lstat(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "cred: %v\n", err)
 			return 1
 		}
+	} else if refuseNonRegular(stderr, "write", path, fi) {
+		return 1
 	}
 
 	label := path
@@ -377,7 +383,7 @@ func modeOf(path string) string {
 
 // modeString renders a FileInfo's permission bits the way the receipt shows
 // them. Shared by modeOf (which stats path itself) and runShow (which
-// already holds the FileInfo from its own os.Stat), so the format lives in
+// already holds the FileInfo from its own os.Lstat), so the format lives in
 // exactly one place.
 func modeString(fi os.FileInfo) string {
 	return fmt.Sprintf("%o", fi.Mode().Perm())

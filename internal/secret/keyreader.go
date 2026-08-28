@@ -120,13 +120,14 @@ func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 			}
 			return out, true, false
 		case b == '\r' || b == '\n':
-			// A trailing partial multi-byte sequence still in pend must
-			// survive rather than be silently dropped: append each of its
-			// bytes as its own unit.
-			for _, pb := range k.pend {
-				k.units = append(k.units, []byte{pb})
-			}
-			k.pend = nil
+			// k.pend is necessarily empty here: it is drained into data at the
+			// top of feed, and the only place it is refilled (the FullRune
+			// branch below) ends the loop immediately after. A partial
+			// multi-byte sequence typed before Enter therefore survives via
+			// that drain — the terminator makes it an invalid encoding, so
+			// each of its bytes decodes as a one-byte unit and is accumulated
+			// verbatim, which is what keeps the value byte-identical to what
+			// was entered (see TestFeedIncompleteUTF8AtEnterSurvivesVerbatim).
 			return out, true, false
 		case b == 0x7F || b == 0x08: // DEL or BS
 			if len(k.units) > 0 {
