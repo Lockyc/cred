@@ -47,9 +47,11 @@ Flags may appear before or after the path (`cred set --name KEY <path>` and
 command's own option list.
 
 **`set`** prompts on the controlling terminal (reads `/dev/tty`, so it works
-even when stdin is piped) and writes the value to `<path>`. Each character
-you type or paste is echoed as `●`, never the character itself, so you can
-tell your input registered without it ever appearing on screen.
+even when stdin is piped) and writes the value to `<path>`. Each character you type or
+paste is echoed as `●` — one per rune, never the character itself — so you
+can tell your input registered without it ever appearing on screen.
+Backspace erases one `●` per rune removed; arrow keys and other escape
+sequences are ignored rather than being absorbed into the value.
 `--value-from '<command>'` reads the value from another command's stdout
 instead of prompting. Ctrl-C, or Ctrl-D on an empty prompt, aborts and
 writes nothing.
@@ -80,10 +82,6 @@ cred: OK
   fingerprint  97d90e6a6af2
   prefix       tok_ ✓
 ```
-
-Each character you type or paste is echoed as `●`, one per rune — never the
-character itself — so you can see your input registered without it ever
-appearing on screen. Backspace erases one `●` per rune removed.
 
 ```console
 $ cred show ~/.config/example/token
@@ -122,8 +120,6 @@ cred: OK
   prefix       sk_ ✓
 ```
 
-Again, each character is masked, never echoed as typed.
-
 `cred rm ~/project/.env --name API_KEY` removes just that line; on a key
 that isn't set, it reports nothing was removed and exits 1 without touching
 the file.
@@ -133,8 +129,8 @@ reads a multi-line value back portably — and writes nothing.
 
 ### The receipt
 
-Every successful `set`/`show` prints a receipt, and `set` asks you to paste
-it back to the agent that requested the credential:
+Every successful `set`/`show` prints a receipt. When an agent asked you for
+the credential, this block is what you hand back to it:
 
 ```
 cred: OK
