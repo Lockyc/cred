@@ -6,6 +6,9 @@ tags    = ["credentials", "secrets", "cli", "agents"]
 stack   = ["go"]
 
 [github]
+# The live GitHub description, captured deliberately: it is the hand-tuned one and
+# reads better than `summary`, which the declared state otherwise falls back to.
+description = "Move a credential from your fingers to a file, without it touching argv, history, or an agent transcript."
 topics_extra = ["cli", "developer-tools", "golang", "secrets", "credentials", "dotenv"]
 
 [[provides]]
