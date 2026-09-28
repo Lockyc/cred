@@ -1,8 +1,10 @@
 # cred
 
+[![Release](https://img.shields.io/github/v/release/lockyc/cred?sort=semver&label=release)](https://github.com/lockyc/cred/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555)
 ![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)
 [![CI](https://github.com/lockyc/cred/actions/workflows/ci.yml/badge.svg)](https://github.com/lockyc/cred/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/lockyc/cred)](LICENSE)
 
 A command that puts a credential into a file, without ever showing it to
 anyone who didn't type it.
