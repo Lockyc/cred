@@ -1,8 +1,11 @@
 name: ci
 on:
+  # Release-time only, never per push: the v* tag, since every commit lands on
+  # main. `just gate` is the local check; `gh workflow run ci.yml` runs this on demand.
   push:
-    branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 jobs:
   gate:
     runs-on: ubuntu-latest
