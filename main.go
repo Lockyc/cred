@@ -66,6 +66,31 @@ func refuseBadName(stderr io.Writer, key string) bool {
 	return true
 }
 
+// statExisting is the prologue show and rm share for a path that must
+// already exist: it Lstats path and reports whether op may go ahead. An
+// absent path is reported MISSING (reportMissing). Any other Lstat error
+// (EACCES on a parent directory, ELOOP, ENOTDIR, ...) is not "the
+// credential is absent" — reporting it as MISSING would send someone to
+// `cred set` and overwrite a live credential that was merely unreadable — so
+// it goes to stderr as a runtime error. Lstat, not Stat, so a symlink is
+// judged by its own type and refused (refuseNonRegular): rm never unlinks a
+// symlink while leaving the credential it points at untouched.
+func statExisting(op, path string, stdout, stderr io.Writer) (os.FileInfo, bool) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			reportMissing(stdout, path)
+		} else {
+			fmt.Fprintf(stderr, "cred: %v\n", err)
+		}
+		return nil, false
+	}
+	if refuseNonRegular(stderr, op, path, fi) {
+		return nil, false
+	}
+	return fi, true
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -183,25 +208,12 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// Lstat, not Stat: a symlink is judged by its own type (see
-	// refuseNonRegular) rather than resolved to whatever it points at.
-	fi, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			reportMissing(stdout, path)
-			return 1
-		}
-		// Any other stat error (EACCES on a parent directory, ELOOP, ENOTDIR,
-		// ...) is not "the credential is absent" — reporting it as MISSING
-		// would send someone to `cred set` and overwrite a live credential
-		// that was merely unreadable.
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
-	}
-	if refuseNonRegular(stderr, "read", path, fi) {
+	fi, ok := statExisting("read", path, stdout, stderr)
+	if !ok {
 		return 1
 	}
 	var value string
+	var err error
 	if *key != "" {
 		value, err = store.GetEnvKey(path, *key)
 	} else {
@@ -233,20 +245,8 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Checked once, up front, ahead of both the --name and whole-file paths
-	// below — the same MISSING/non-regular report show uses. Lstat, not
-	// Stat: a symlink is judged by its own type (see refuseNonRegular),
-	// which is what stops rm from unlinking a symlink while leaving the
-	// credential it points at untouched.
-	fi, err := os.Lstat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			reportMissing(stdout, path)
-			return 1
-		}
-		fmt.Fprintf(stderr, "cred: %v\n", err)
-		return 1
-	}
-	if refuseNonRegular(stderr, "remove", path, fi) {
+	// below.
+	if _, ok := statExisting("remove", path, stdout, stderr); !ok {
 		return 1
 	}
 
