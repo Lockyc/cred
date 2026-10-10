@@ -153,7 +153,7 @@ func GetEnvKey(path, key string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("key %q is not set in %s", key, path)
 	case 1:
-		return unquoteEnv(strings.TrimSpace(value)), nil
+		return unquoteEnv(value), nil
 	default:
 		// Same refusal as SetEnvKey, and for the same reason: which
 		// occurrence a .env loader honors is not portable, so reading one
@@ -162,15 +162,49 @@ func GetEnvKey(path, key string) (string, error) {
 	}
 }
 
-func unquoteEnv(v string) string {
-	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
-		return v[1 : len(v)-1]
+// unquoteEnv returns the value an assignment's right-hand side holds: a
+// leading quoted string's content, or the bare text, minus a trailing comment
+// — a `#` after whitespace, outside quotes. godotenv, python-dotenv and
+// `. ./.env` all drop that comment, so `show --name` fingerprints the value
+// every reader cred supports hands the application, not the comment with it.
+func unquoteEnv(raw string) string {
+	v := strings.TrimSpace(raw)
+	if len(v) >= 2 && (v[0] == '\'' || v[0] == '"') {
+		if end := closingQuote(v); end > 0 && isCommentOrBlank(v[end+1:]) {
+			if v[0] == '\'' {
+				return v[1:end]
+			}
+			r := strings.NewReplacer(`\"`, `"`, `\$`, "$", "\\`", "`", `\\`, `\`)
+			return r.Replace(v[1:end])
+		}
 	}
-	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-		r := strings.NewReplacer(`\"`, `"`, `\$`, "$", "\\`", "`", `\\`, `\`)
-		return r.Replace(v[1 : len(v)-1])
+	for i := 1; i < len(v); i++ {
+		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+			return strings.TrimSpace(v[:i])
+		}
 	}
 	return v
+}
+
+// closingQuote returns the index of the quote closing the one at v[0], or -1.
+// Inside double quotes a backslash escapes the next byte.
+func closingQuote(v string) int {
+	for i := 1; i < len(v); i++ {
+		switch {
+		case v[0] == '"' && v[i] == '\\':
+			i++
+		case v[i] == v[0]:
+			return i
+		}
+	}
+	return -1
+}
+
+// isCommentOrBlank reports whether rest, the text after a closing quote, is
+// nothing or whitespace then a `#` comment.
+func isCommentOrBlank(rest string) bool {
+	trimmed := strings.TrimLeft(rest, " \t")
+	return trimmed == "" || (trimmed != rest && trimmed[0] == '#')
 }
 
 // HasEnvKey reports whether key has at least one assignment in path, using

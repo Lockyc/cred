@@ -464,3 +464,38 @@ func TestSetEnvKeyOutputIsSafeToSourceInSh(t *testing.T) {
 		}
 	}
 }
+
+// A hand-edited trailing comment is not part of the value: GetEnvKey reads
+// each line the way `. ./.env` does.
+func TestGetEnvKeyDropsATrailingComment(t *testing.T) {
+	cases := map[string]string{
+		"K=sk_abc # prod key":          "sk_abc",
+		"K=sk_abc\t#prod":              "sk_abc",
+		"K=sk_abc #":                   "sk_abc",
+		"K=a#b":                        "a#b",
+		"K=#abc":                       "#abc",
+		"K='q #in' # c":                "q #in",
+		"K='q #in'":                    "q #in",
+		`K="d \"#\" q" # c`:            `d "#" q`,
+		`K="it's" #c`:                  "it's",
+		"export K=sk_abc  # two-space": "sk_abc",
+	}
+	_, shErr := exec.LookPath("sh")
+	for line, want := range cases {
+		p := writeEnv(t, line+"\n")
+		got, err := GetEnvKey(p, "K")
+		if err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		if got != want {
+			t.Errorf("%q -> %q, want %q", line, got, want)
+		}
+		if shErr != nil {
+			continue
+		}
+		cmd := exec.Command("sh", "-c", `. "$1"; printf %s "$K"`, "sh", p)
+		if out, err := cmd.Output(); err != nil || string(out) != want {
+			t.Errorf("sh reads %q as %q (err %v), want %q", line, out, err, want)
+		}
+	}
+}
