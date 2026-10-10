@@ -3,10 +3,9 @@ package secret
 import "unicode/utf8"
 
 // maskRune is echoed once per accumulated unit entered at a hidden prompt, in
-// place of the unit itself — never the character typed. A silent prompt (the
-// previous behaviour, golang.org/x/term's ReadPassword) gives the operator no
-// way to tell a registered keystroke from a dropped one; a mask per unit
-// does.
+// place of the unit itself — never the character typed. A silent prompt
+// (golang.org/x/term's ReadPassword) gives the operator no way to tell a
+// registered keystroke from a dropped one; a mask per unit does.
 const maskRune = '●' // U+25CF BLACK CIRCLE
 
 // eraseSeq is written to erase one mask from the terminal on backspace:
@@ -66,8 +65,8 @@ func (k *keyState) value() string {
 // input), and whether it was aborted (Ctrl-C, or Ctrl-D on empty input).
 //
 // On done or abort, feed returns immediately — any bytes in chunk after the
-// triggering byte are discarded, matching the existing behaviour of a
-// pasted value containing a newline: it submits at the newline.
+// triggering byte are discarded, so a pasted value containing a newline
+// submits at the newline.
 func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 	data := chunk
 	if len(k.pend) > 0 {

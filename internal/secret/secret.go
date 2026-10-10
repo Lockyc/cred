@@ -54,9 +54,9 @@ func FromCommand(cmd string) (string, error) {
 // as ● (U+25CF), never the rune itself. It reads from /dev/tty rather than
 // stdin so it still works when stdin is a pipe.
 //
-// A silent prompt — the previous behaviour, golang.org/x/term's
-// ReadPassword — gives the operator no way to tell a registered keystroke
-// from a dropped one: zero characters and forty look identical. The whole
+// A silent prompt (golang.org/x/term's ReadPassword) gives the operator no
+// way to tell a registered keystroke from a dropped one: zero characters and
+// forty look identical. The whole
 // point of cred is giving the human confidence the credential landed, so
 // going silent at the moment they enter it undercuts that. All the
 // character-accounting logic (unit counting, backspace, abort, terminators,

@@ -47,9 +47,8 @@ deliberately does not do."
   reject an empty result (`ErrEmpty`) — an empty write is always a mis-paste
   or a failed command, never intentional. `FromTTY` puts the terminal in raw
   mode and echoes one `●` per rune entered rather than staying silent — a
-  fully silent prompt (the prior behaviour, `golang.org/x/term`'s
-  `ReadPassword`) gives the operator no way to tell a registered keystroke
-  from a dropped one, which defeats a tool whose whole point is confirming a
+  fully silent prompt (`golang.org/x/term`'s `ReadPassword`) gives the
+  operator no way to tell a registered keystroke from a dropped one, which defeats a tool whose whole point is confirming a
   value landed. Ctrl-C, and Ctrl-D on empty input, abort (`ErrAborted`) and
   write nothing; the terminal is restored via `defer term.Restore`
   immediately after `term.MakeRaw`, so every exit path — abort, a mid-read
