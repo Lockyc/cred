@@ -363,3 +363,37 @@ func TestRemoveEnvKeyHandlesALineLongerThanTheScannerDefault(t *testing.T) {
 		t.Fatal("long line was not preserved")
 	}
 }
+
+func TestEnvKeyMatchesWhitespaceAroundTheEquals(t *testing.T) {
+	const body = "A=1\nAPI_KEY = old\nB=2\n"
+
+	p := writeEnv(t, body)
+	if has, err := HasEnvKey(p, "API_KEY"); err != nil || !has {
+		t.Fatalf("HasEnvKey = %v, %v; want true, nil", has, err)
+	}
+	if got, err := GetEnvKey(p, "API_KEY"); err != nil || got != "old" {
+		t.Fatalf("GetEnvKey = %q, %v; want \"old\", nil", got, err)
+	}
+
+	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readEnv(t, p), "A=1\nAPI_KEY=new\nB=2\n"; got != want {
+		t.Fatalf("set replaced into:\n%q\nwant:\n%q", got, want)
+	}
+
+	p = writeEnv(t, body)
+	if err := RemoveEnvKey(p, "API_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := readEnv(t, p), "A=1\nB=2\n"; got != want {
+		t.Fatalf("rm left:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestEnvKeyWhitespaceMatchStaysAnchoredOnTheWholeKey(t *testing.T) {
+	p := writeEnv(t, "API_KEY_2 = untouched\n")
+	if has, err := HasEnvKey(p, "API_KEY"); err != nil || has {
+		t.Fatalf("HasEnvKey = %v, %v; want false, nil", has, err)
+	}
+}

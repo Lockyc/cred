@@ -142,7 +142,7 @@ the caller picked its mode deliberately.
 ## Footgun — the `.env` key regex is anchored on the whole key
 
 `keyLine` (`internal/store/envfile.go`) matches
-`^\s*(export\s+)?<key>=` with the key fully escaped and anchored — so a
+`^\s*(export\s+)?<key>\s*=` with the key fully escaped and anchored — so a
 lookup for `API_KEY` never matches a line beginning `MY_API_KEY=`. An
 unanchored or prefix-only match would silently operate on the wrong
 variable in any `.env` where one key is a suffix of another.

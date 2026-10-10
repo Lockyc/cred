@@ -11,9 +11,10 @@ import (
 )
 
 // A .env assignment: optional leading whitespace, an optional `export `, the
-// key, then `=`. Anchored on the full key so API_KEY never matches MY_API_KEY.
+// key, optional whitespace, then `=`. Anchored on the full key so API_KEY never
+// matches MY_API_KEY.
 func keyLine(key string) *regexp.Regexp {
-	return regexp.MustCompile(`^\s*(export\s+)?` + regexp.QuoteMeta(key) + `=`)
+	return regexp.MustCompile(`^\s*(export\s+)?` + regexp.QuoteMeta(key) + `\s*=`)
 }
 
 // newScanner returns a line scanner with its buffer cap raised above the
