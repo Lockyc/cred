@@ -15,6 +15,12 @@ import (
 //
 // mode applies only when created is true (the file is being written for the
 // first time). Otherwise the file at path keeps the mode it already has.
+//
+// The temp file is created at 0600 (os.CreateTemp), written and synced, and
+// only then chmod'd to the target mode. A umask can only remove bits, so
+// starting at 0600 means there is never a window where the file is wider
+// than intended; chmod-ing to a wide mode before writing would open one, and
+// an interrupt there would fail open.
 func writeFileAtomic(path string, data []byte, mode os.FileMode, created bool) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".cred-*")
 	if err != nil {
