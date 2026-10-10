@@ -56,12 +56,11 @@ func FromCommand(cmd string) (string, error) {
 //
 // A silent prompt (golang.org/x/term's ReadPassword) gives the operator no
 // way to tell a registered keystroke from a dropped one: zero characters and
-// forty look identical. The whole
-// point of cred is giving the human confidence the credential landed, so
-// going silent at the moment they enter it undercuts that. All the
-// character-accounting logic (unit counting, backspace, abort, terminators,
-// escape-sequence and invalid-UTF-8 handling) lives in keyState.feed
-// (keyreader.go), a pure function with no terminal
+// forty look identical. The whole point of cred is giving the human
+// confidence the credential landed, so going silent at the moment they enter
+// it undercuts that. All the character-accounting logic (unit counting,
+// backspace, abort, terminators, escape-sequence and invalid-UTF-8 handling)
+// lives in keyState.feed (keyreader.go), a pure function with no terminal
 // dependency — FromTTY itself needs a real terminal and so cannot be
 // unit-tested; that's exactly why the logic doesn't live here.
 func FromTTY(prompt string) (string, error) {
