@@ -103,14 +103,23 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 	return writeFileAtomic(path, []byte(b.String()), mode, created)
 }
 
+// shellSpecial is every character POSIX sh treats specially somewhere in an
+// unquoted word — whitespace, quotes, expansion, comment, operator, glob,
+// brace and tilde characters — plus `=` and bash's `!`. A .env is read both by
+// dotenv loaders and by `. ./.env`, so a value carrying any of these is
+// quoted: left bare, `ab&cd;rm x` would run `rm x` when the file is sourced.
+const shellSpecial = " \t\"'#=$`\\;&|<>()*?[]{}~!"
+
 // quoteEnv quotes only when the value would otherwise be misread. An unquoted
 // token — the overwhelmingly common case for an API key — stays unquoted, so
-// cred's output looks like what a person would have typed.
+// cred's output looks like what a person would have typed. Single quotes when
+// the value has none (nothing inside them is special to sh); otherwise double
+// quotes, escaping the four characters sh still interprets there.
 func quoteEnv(v string) string {
 	if v == "" {
 		return `''`
 	}
-	if !strings.ContainsAny(v, " \t\"'#=$`\\") {
+	if !strings.ContainsAny(v, shellSpecial) {
 		return v
 	}
 	if !strings.Contains(v, "'") {

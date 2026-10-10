@@ -2,6 +2,7 @@ package store
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -225,6 +226,7 @@ func TestSetThenGetRoundTrips(t *testing.T) {
 		"trailing ",
 		"",
 	}
+	values = append(values, shellMetacharValues()...)
 	for _, value := range values {
 		p := filepath.Join(t.TempDir(), ".env")
 		if err := SetEnvKey(p, "API_KEY", value, 0o600); err != nil {
@@ -395,5 +397,70 @@ func TestEnvKeyWhitespaceMatchStaysAnchoredOnTheWholeKey(t *testing.T) {
 	p := writeEnv(t, "API_KEY_2 = untouched\n")
 	if has, err := HasEnvKey(p, "API_KEY"); err != nil || has {
 		t.Fatalf("HasEnvKey = %v, %v; want false, nil", has, err)
+	}
+}
+
+// shellMetacharValues pairs every shellSpecial character with a payload that
+// creates the file "pwned" if sh ever interprets it, plus the word-start and
+// mixed-quote shapes.
+func shellMetacharValues() []string {
+	var vs []string
+	for _, c := range shellSpecial {
+		vs = append(vs, "ab"+string(c)+"touch pwned", string(c)+"touch pwned")
+	}
+	return append(vs,
+		"ab&cd;rm -rf x",
+		"$(touch pwned)",
+		"`touch pwned`",
+		">pwned",
+		"a|touch pwned",
+		"=leading-equals",
+		"~/home-relative",
+		"x;touch pwned'quoted",
+		"it's;$(touch pwned)&`touch pwned`|x",
+		"sk_live_abc-123.XYZ+/:@%^,",
+	)
+}
+
+func TestSetEnvKeyQuotesShellMetacharacters(t *testing.T) {
+	for _, c := range ";&|<>()*?[]{}~!" {
+		v := "ab" + string(c) + "cd"
+		if got := quoteEnv(v); got != "'"+v+"'" {
+			t.Errorf("quoteEnv(%q) = %q, want it single-quoted", v, got)
+		}
+	}
+}
+
+// A file cred writes is safe to `.`-source: every value comes back exactly,
+// and no payload in it runs.
+func TestSetEnvKeyOutputIsSafeToSourceInSh(t *testing.T) {
+	var shells []string
+	for _, sh := range []string{"sh", "dash", "bash"} {
+		if _, err := exec.LookPath(sh); err == nil {
+			shells = append(shells, sh)
+		}
+	}
+	if len(shells) == 0 {
+		t.Skip("no POSIX shell on PATH")
+	}
+	for _, value := range shellMetacharValues() {
+		dir := t.TempDir()
+		if err := SetEnvKey(filepath.Join(dir, ".env"), "K", value, 0o600); err != nil {
+			t.Fatalf("Set(%q): %v", value, err)
+		}
+		for _, sh := range shells {
+			cmd := exec.Command(sh, "-c", `. ./.env; printf %s "$K"`)
+			cmd.Dir = dir
+			out, err := cmd.Output()
+			if err != nil {
+				t.Errorf("%s sourcing %q: %v", sh, value, err)
+			}
+			if string(out) != value {
+				t.Errorf("%s sourced %q as %q", sh, value, out)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
+				t.Fatalf("%s sourcing %q ran its payload", sh, value)
+			}
+		}
 	}
 }

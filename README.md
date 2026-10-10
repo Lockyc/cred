@@ -127,7 +127,9 @@ that isn't set, it reports nothing was removed and exits 1 without touching
 the file.
 
 `set --name` refuses a value that contains a newline — no `.env` loader
-reads a multi-line value back portably — and writes nothing.
+reads a multi-line value back portably — and writes nothing. Any other value
+is quoted wherever a dotenv loader or a shell would misread it, so the file
+is as safe to `. ./.env` as to load.
 
 ### The receipt
 
