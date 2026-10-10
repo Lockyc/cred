@@ -233,9 +233,8 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Checked once, up front, ahead of both the --name and whole-file paths
-	// below — the presence check the invariant comment above `RemoveEnvKey`
-	// gates on, and the same MISSING/non-regular report show uses. Lstat,
-	// not Stat: a symlink is judged by its own type (see refuseNonRegular),
+	// below — the same MISSING/non-regular report show uses. Lstat, not
+	// Stat: a symlink is judged by its own type (see refuseNonRegular),
 	// which is what stops rm from unlinking a symlink while leaving the
 	// credential it points at untouched.
 	fi, err := os.Lstat(path)
