@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,21 @@ func refuseNonRegular(stderr io.Writer, op, path string, fi os.FileInfo) bool {
 	return true
 }
 
+// envKey is the shape a --name KEY must have. The key is written verbatim
+// into `KEY=value`, so an `=`, whitespace or a newline in it would corrupt
+// the line, or inject another one.
+var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
+
+// refuseBadName reports (and prints) whether a non-empty --name is not a
+// valid .env key — a usage error, refused before the file is touched.
+func refuseBadName(stderr io.Writer, key string) bool {
+	if key == "" || envKey.MatchString(key) {
+		return false
+	}
+	fmt.Fprintf(stderr, "cred: --name %q is not a valid .env key (letters, digits, _ and ., not starting with a digit)\n", key)
+	return true
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -86,6 +102,9 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	path, ok, code := parsePathCommand("set", "destination path", fs, args, stdout, stderr)
 	if !ok {
 		return code
+	}
+	if refuseBadName(stderr, *key) {
+		return 2
 	}
 
 	mode, err := strconv.ParseUint(*modeStr, 8, 32)
@@ -160,6 +179,9 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return code
 	}
+	if refuseBadName(stderr, *key) {
+		return 2
+	}
 
 	// Lstat, not Stat: a symlink is judged by its own type (see
 	// refuseNonRegular) rather than resolved to whatever it points at.
@@ -205,6 +227,9 @@ func runRm(args []string, stdout, stderr io.Writer) int {
 	path, ok, code := parsePathCommand("rm", "path", fs, args, stdout, stderr)
 	if !ok {
 		return code
+	}
+	if refuseBadName(stderr, *key) {
+		return 2
 	}
 
 	// Checked once, up front, ahead of both the --name and whole-file paths

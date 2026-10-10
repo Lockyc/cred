@@ -815,3 +815,30 @@ func TestSetNonNotExistStatErrorIsRefusedBeforeAcquiringTheValue(t *testing.T) {
 		t.Fatalf("stderr = %q, want the underlying \"permission denied\" stat error surfaced", errOut.String())
 	}
 }
+
+func TestNameThatIsNotAnEnvKeyIsUsageErrorAndTouchesNothing(t *testing.T) {
+	const body = "A=1\n"
+	for _, cmd := range []string{"set", "show", "rm"} {
+		for _, name := range []string{"A=B", "A B", "A\nEVIL=1", "1A", "-A"} {
+			path := filepath.Join(t.TempDir(), ".env")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var out, errOut bytes.Buffer
+			args := []string{cmd, path, "--name=" + name}
+			if cmd == "set" {
+				args = append(args, "--value-from", "printf 'v'")
+			}
+			code := run(args, &out, &errOut)
+			if code != 2 {
+				t.Errorf("%s --name %q: exit = %d, want 2 (stderr %q)", cmd, name, code, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "not a valid .env key") {
+				t.Errorf("%s --name %q: stderr = %q, want the invalid-key message", cmd, name, errOut.String())
+			}
+			if b, _ := os.ReadFile(path); string(b) != body {
+				t.Errorf("%s --name %q: file changed to %q", cmd, name, b)
+			}
+		}
+	}
+}
