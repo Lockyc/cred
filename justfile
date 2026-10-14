@@ -5,15 +5,19 @@
 default:
     @if command -v perl >/dev/null 2>&1; then just --color always --list | perl -CS -Mutf8 -lpe 'BEGIN{($w)=`stty size 2>/dev/null </dev/tty`=~/ (\d+)/; $w||=100; $col=(-t STDOUT && !exists $ENV{NO_COLOR})} s/\e\[[0-9;]*m//g unless $col; (my $v=$_)=~s/\e\[[0-9;]*m//g; if(length($v)>$w){my($o,$n)=("",0); while(length && $n<$w-1){ if($col && s/^(\e\[[0-9;]*m)//){$o.=$1}else{s/^(.)//;$o.=$1;$n++} } $_=$o."…".($col?"\e[0m":"")}'; else just --list; fi
 
+# Build the cred binary
 build:
     go build -o cred .
 
+# Run the test suite
 test:
     go test ./...
 
+# Format all Go files in place
 fmt:
     gofmt -w .
 
+# Install to the Go bin dir (on PATH), then print the installed version
 install:
     #!/usr/bin/env bash
     set -euo pipefail
