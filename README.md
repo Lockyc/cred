@@ -40,9 +40,9 @@ command's own option list.
 
 **`set`** prompts on the controlling terminal (even when stdin is piped) and
 writes the value to `<path>`. Each character you type or
-paste is echoed as `●` — one per rune, never the character itself — so you
-can tell your input registered without it ever appearing on screen.
-Backspace erases one `●` per rune removed; arrow keys and other escape
+paste is shown as one `●`, never as the character itself, so you can tell
+your input registered without it ever appearing on screen. Backspace erases
+one `●` per character removed; arrow keys and other escape
 sequences are ignored.
 `--value-from '<command>'` reads the value from another command's stdout
 instead of prompting. Ctrl-C, or Ctrl-D on an empty prompt, aborts and
@@ -55,10 +55,10 @@ puts it in both.
 
 `--expect-prefix` refuses to write if the value doesn't start with the given
 string, catching a wrong paste before it lands. `--mode` sets the octal mode
-(default `600`). A standalone destination is always set to this mode, even
-if the file already exists. An
-existing `.env` keeps the mode it already has, so `--mode` applies to it
-only at creation.
+(default `600`). When cred writes the whole file, it always sets this mode,
+even if the file already exists. With `--name` (one key inside a `.env` file,
+below), an existing file keeps its mode; `--mode` applies only when cred
+creates it.
 
 Worked example — a standalone credential file:
 
