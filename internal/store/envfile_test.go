@@ -37,6 +37,20 @@ func TestSetEnvKeyReplacesInPlacePreservingEverythingElse(t *testing.T) {
 	}
 }
 
+func TestSetEnvKeyKeepsExportAndIndentation(t *testing.T) {
+	p := writeEnv(t, "export API_KEY=old\n  DB_PASS=old\n")
+	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetEnvKey(p, "DB_PASS", "new", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "export API_KEY=new\n  DB_PASS=new\n"
+	if got := readEnv(t, p); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestSetEnvKeyAppendsWhenAbsent(t *testing.T) {
 	p := writeEnv(t, "APP_ENV=local\n")
 	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err != nil {

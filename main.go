@@ -137,6 +137,12 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cred: --mode %q is not an octal mode\n", *modeStr)
 		return 2
 	}
+	// Setuid/setgid/sticky and anything wider would be silently dropped by the
+	// chmod, leaving a mode the user didn't ask for behind an OK receipt.
+	if mode > 0o777 {
+		fmt.Fprintf(stderr, "cred: --mode %q is not a permission mode (000–777)\n", *modeStr)
+		return 2
+	}
 
 	// Checked up front, before prompting: a directory or symlink destination
 	// is refused the same way show and rm refuse one, rather than reaching

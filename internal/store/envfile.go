@@ -3,6 +3,7 @@ package store
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 // key, optional whitespace, then `=`. Anchored on the full key so API_KEY never
 // matches MY_API_KEY.
 func keyLine(key string) *regexp.Regexp {
-	return regexp.MustCompile(`^\s*(export\s+)?` + regexp.QuoteMeta(key) + `\s*=`)
+	return regexp.MustCompile(`^(\s*(?:export\s+)?)` + regexp.QuoteMeta(key) + `\s*=`)
 }
 
 // newScanner returns a line scanner with its buffer cap raised above the
@@ -56,7 +57,7 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 	existing, err := os.ReadFile(path)
 	created := false
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		created = true
@@ -75,10 +76,12 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 		matches := 0
 		sc := newScanner(existing)
 		for sc.Scan() {
-			if re.MatchString(sc.Text()) {
+			if m := re.FindStringSubmatch(sc.Text()); m != nil {
 				matches++
 				if !replaced {
-					b.WriteString(assignment + eol)
+					// Keep the line's indentation and `export `: dropping it
+					// would leave a sourced .env setting an unexported variable.
+					b.WriteString(m[1] + assignment + eol)
 					replaced = true
 				}
 				continue

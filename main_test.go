@@ -172,6 +172,20 @@ func TestSetFlagsAfterPath(t *testing.T) {
 	}
 }
 
+func TestSetRefusesModeBeyondPermissionBits(t *testing.T) {
+	for _, m := range []string{"2750", "4755", "1000000"} {
+		path := filepath.Join(t.TempDir(), "key")
+		var out, errOut bytes.Buffer
+		code := run([]string{"set", "--mode", m, path, "--value-from", "printf 'x'"}, &out, &errOut)
+		if code != 2 {
+			t.Fatalf("--mode %s: exit = %d, want 2; stderr = %s", m, code, errOut.String())
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("--mode %s: a file was written", m)
+		}
+	}
+}
+
 func TestSetDashDashTerminatorAllowsPathStartingWithDash(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
