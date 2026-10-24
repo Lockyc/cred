@@ -90,7 +90,7 @@ deferral is the outcome of a change.
 ## Build & test
 
 ```bash
-just gate    # gofmt check + go vet + go test — the pre-push gate
+just gate    # gofmt check + go vet + go test — the pre-release gate; run it before tagging
 ```
 
 `.githooks/pre-push` runs `docgraph .` (fail-closed: push is blocked if

@@ -161,7 +161,7 @@ but `set` accepts any path.
 just build   # go build
 just test    # go test ./...
 just fmt     # gofmt -w .
-just gate    # gofmt check + go vet + go test — the pre-push gate
+just gate    # gofmt check + go vet + go test — the pre-release gate; run it before tagging
 just install # go install, then runs the installed binary's `version`
 ```
 
