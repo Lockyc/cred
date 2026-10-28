@@ -53,8 +53,8 @@ the credential out of argv and shell history; `--value-from 'echo sk-live-abc...
 puts it in both.
 
 `--expect-prefix` refuses to write if the value doesn't start with the given
-string, catching a wrong paste before it lands. `--mode` sets the octal mode
-(default `600`). When cred writes the whole file, it always sets this mode,
+string, catching a wrong paste before it lands. `--mode` sets the file's
+permission bits, octal `000`–`777` (default `600`). When cred writes the whole file, it always sets this mode,
 even if the file already exists. With `--name` (one key inside a `.env` file,
 below), an existing file keeps its mode; `--mode` applies only when cred
 creates it.
