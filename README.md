@@ -112,9 +112,11 @@ cred: OK
 that isn't set, it reports nothing was removed and exits 1 without touching
 the file.
 
-`set --name` refuses a value that contains a newline and writes nothing. Any other value
-is quoted wherever a dotenv loader or a shell would misread it, so the file
-is as safe to `. ./.env` as to load.
+`set --name` quotes a value wherever a loader or a shell would misread it,
+so godotenv, python-dotenv and `. ./.env` all read back exactly the value
+typed. Two kinds of value have no such quoting, and `set --name` refuses them
+and writes nothing: one containing a newline, and one containing `$` or a
+backtick together with `'` or `\`.
 
 ### The receipt
 

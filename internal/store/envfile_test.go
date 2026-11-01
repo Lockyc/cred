@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,15 +95,17 @@ func TestSetEnvKeyQuotesValuesThatNeedIt(t *testing.T) {
 		"has space":  "API_KEY='has space'\n",
 		"has#hash":   "API_KEY='has#hash'\n",
 		"has'quote":  "API_KEY=\"has'quote\"\n",
+		"cost$5":     "API_KEY='cost$5'\n",
+		"cmd`sub":    "API_KEY='cmd`sub'\n",
+		`say"hi`:     "API_KEY='say\"hi'\n",
 
-		// The double-quote escaping replacer only fires once a value
-		// contains a single quote (which forces the double-quoted branch);
-		// each case below pairs a single quote with one of the characters
-		// the replacer escapes.
-		"back\\slash'quote": "API_KEY=\"back\\\\slash'quote\"\n", // backslash
-		"cost$5'off":        "API_KEY=\"cost\\$5'off\"\n",        // dollar
-		"cmd`sub'x":         "API_KEY=\"cmd\\`sub'x\"\n",         // backtick
-		"say\"hi'there":     "API_KEY=\"say\\\"hi'there\"\n",     // double quote, and both quote types together
+		// A backslash or single quote forces double quotes, which escape
+		// only \ and ".
+		"back\\slash":       "API_KEY=\"back\\\\slash\"\n",       // backslash alone
+		"abc\\":             "API_KEY=\"abc\\\\\"\n",             // ends in a backslash
+		"a\\\\b":            "API_KEY=\"a\\\\\\\\b\"\n",          // two backslashes
+		"back\\slash'quote": "API_KEY=\"back\\\\slash'quote\"\n", // backslash and single quote
+		"say\"hi'there":     "API_KEY=\"say\\\"hi'there\"\n",     // both quote types together
 		"o'clock\\":         "API_KEY=\"o'clock\\\\\"\n",         // ends in a backslash
 	}
 	for value, want := range cases {
@@ -124,6 +127,34 @@ func TestSetEnvKeyRejectsAValueContainingANewline(t *testing.T) {
 	}
 	if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
 		t.Fatal("the file was created despite the rejected value")
+	}
+}
+
+// $ or ` rules out double quotes, and ' or \ rules out single quotes; a value
+// with one of each has no encoding every reader agrees on.
+func TestSetEnvKeyRejectsAValueNoQuotingReadsBackEverywhere(t *testing.T) {
+	for _, value := range []string{"it's$5", "a\\$b", "it's`x`", "a\\`b", "it's;$(touch pwned)&`touch pwned`|x"} {
+		p := writeEnv(t, "A=1\n")
+		if err := SetEnvKey(p, "API_KEY", value, 0o600); !errors.Is(err, errUnquotable) {
+			t.Errorf("Set(%q) = %v, want errUnquotable", value, err)
+		}
+		if got := readEnv(t, p); got != "A=1\n" {
+			t.Errorf("Set(%q) rewrote the file to %q despite refusing", value, got)
+		}
+	}
+}
+
+// Every value quoteEnv encodes reads back unchanged through unquoteEnv.
+func TestQuoteEnvRoundTripsThroughUnquoteEnv(t *testing.T) {
+	values := append(shellMetacharValues(), "", "plain", "abc\\", "a\\\\b", `say"hi`, "o'clock\\", `\"`, "cost$5", "#lead", "a #b")
+	for _, v := range values {
+		q, err := quoteEnv(v)
+		if err != nil {
+			t.Fatalf("quoteEnv(%q): %v", v, err)
+		}
+		if got := unquoteEnv(q); got != v {
+			t.Errorf("unquoteEnv(quoteEnv(%q)) = %q (encoded %q)", v, got, q)
+		}
 	}
 }
 
@@ -431,7 +462,7 @@ func shellMetacharValues() []string {
 		"=leading-equals",
 		"~/home-relative",
 		"x;touch pwned'quoted",
-		"it's;$(touch pwned)&`touch pwned`|x",
+		"it's;(touch pwned)&|x",
 		"sk_live_abc-123.XYZ+/:@%^,",
 	)
 }
@@ -439,7 +470,7 @@ func shellMetacharValues() []string {
 func TestSetEnvKeyQuotesShellMetacharacters(t *testing.T) {
 	for _, c := range ";&|<>()*?[]{}~!" {
 		v := "ab" + string(c) + "cd"
-		if got := quoteEnv(v); got != "'"+v+"'" {
+		if got, _ := quoteEnv(v); got != "'"+v+"'" {
 			t.Errorf("quoteEnv(%q) = %q, want it single-quoted", v, got)
 		}
 	}

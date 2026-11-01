@@ -53,6 +53,10 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 	if strings.ContainsAny(value, "\r\n") {
 		return fmt.Errorf("value contains a newline, which no .env loader reads back portably")
 	}
+	quoted, err := quoteEnv(value)
+	if err != nil {
+		return err
+	}
 
 	existing, err := os.ReadFile(path)
 	created := false
@@ -66,7 +70,7 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 		}
 	}
 
-	assignment := key + "=" + quoteEnv(value)
+	assignment := key + "=" + quoted
 	eol := "\n"
 	var b strings.Builder
 	replaced := false
@@ -113,23 +117,34 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 // quoted: left bare, `ab&cd;rm x` would run `rm x` when the file is sourced.
 const shellSpecial = " \t\"'#=$`\\;&|<>()*?[]{}~!"
 
-// quoteEnv quotes only when the value would otherwise be misread. An unquoted
-// token — the overwhelmingly common case for an API key — stays unquoted, so
-// cred's output looks like what a person would have typed. Single quotes when
-// the value has none (nothing inside them is special to sh); otherwise double
-// quotes, escaping the four characters sh still interprets there.
-func quoteEnv(v string) string {
+// errUnquotable is quoteEnv's refusal: no quoting reads back the same in
+// godotenv, python-dotenv and `. ./.env`.
+var errUnquotable = errors.New("value contains $ or ` together with ' or \\, which no quoting reads back the same in every .env loader")
+
+// quoteEnv quotes only when the value would otherwise be misread, choosing
+// the one encoding godotenv, python-dotenv and `. ./.env` all read back
+// exactly. An unquoted token — the overwhelmingly common case for an API key —
+// stays unquoted, so cred's output looks like what a person would have typed.
+// Single quotes need a value with no ' and no \: python-dotenv treats \' as an
+// escaped quote and \\ as one backslash inside them, where sh takes both
+// literally. Double quotes, escaping only \ and ", need a value with no $ and
+// no `: sh would expand them, and python-dotenv keeps the backslash of a \$ or
+// \` escape. A value that fits neither is refused.
+func quoteEnv(v string) (string, error) {
 	if v == "" {
-		return `''`
+		return `''`, nil
 	}
 	if !strings.ContainsAny(v, shellSpecial) {
-		return v
+		return v, nil
 	}
-	if !strings.Contains(v, "'") {
-		return "'" + v + "'"
+	if !strings.ContainsAny(v, `'\`) {
+		return "'" + v + "'", nil
 	}
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
-	return `"` + r.Replace(v) + `"`
+	if !strings.ContainsAny(v, "$`") {
+		r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+		return `"` + r.Replace(v) + `"`, nil
+	}
+	return "", errUnquotable
 }
 
 // GetEnvKey returns the unquoted value of key in path.
