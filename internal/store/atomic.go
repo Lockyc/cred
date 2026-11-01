@@ -42,12 +42,21 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode, created bool) e
 	}
 
 	perm := mode
-	if !created {
-		fi, statErr := os.Stat(path)
-		if statErr != nil {
-			return statErr
+	fi, statErr := os.Stat(path)
+	switch {
+	case statErr == nil:
+		// An existing file keeps its owner and group as well as its mode: the
+		// renamed temp file would otherwise belong to whoever ran cred (root
+		// under sudo, or the user's primary group), locking out its readers.
+		// A chown that fails writes nothing rather than change ownership.
+		if err := keepOwner(tmpName, fi); err != nil {
+			return err
 		}
-		perm = fi.Mode().Perm()
+		if !created {
+			perm = fi.Mode().Perm()
+		}
+	case !created:
+		return statErr
 	}
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
