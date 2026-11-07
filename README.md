@@ -59,6 +59,10 @@ even if the file already exists. With `--name` (one key inside a `.env` file,
 below), an existing file keeps its mode; `--mode` applies only when cred
 creates it.
 
+Rewriting an existing file keeps its owner and group, so `sudo cred set` on a
+service's file leaves it readable by that service. If cred can't keep them —
+you aren't root and the file belongs to someone else — it writes nothing.
+
 Worked example — a standalone credential file:
 
 ```console
