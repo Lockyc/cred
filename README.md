@@ -5,10 +5,11 @@
 ![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)
 [![License](https://img.shields.io/github/license/lockyc/cred)](LICENSE)
 
-A command that puts a credential into a file, without ever showing it to
-anyone who didn't type it. When an agent needs you to place an API key or a
-token, it hands you `cred set <path>`, which works the same in bash, fish,
-zsh, or typed by hand.
+Put an API key or token into a file without it ever appearing in your shell
+history, a process list or an agent's transcript. When an agent needs you to
+place a credential, it hands you `cred set <path>`. You paste the secret at a
+hidden prompt, and the agent gets back a receipt showing the file is right,
+never the value. It works the same in bash, fish, zsh, or typed by hand.
 
 ## Install
 
@@ -52,12 +53,16 @@ that *contains* it.** `--value-from 'op read op://vault/item/field'` keeps
 the credential out of argv and shell history; `--value-from 'echo sk-live-abc...'`
 puts it in both.
 
-`--expect-prefix` refuses to write if the value doesn't start with the given
-string, catching a wrong paste before it lands. `--mode` sets the file's
-permission bits, octal `000`–`777` (default `600`). When cred writes the whole file, it always sets this mode,
-even if the file already exists. With `--name` (one key inside a `.env` file,
-below), an existing file keeps its mode; `--mode` applies only when cred
-creates it.
+| Flag | Default | What it does |
+|---|---|---|
+| `--name KEY` | none | Act on one key inside a `.env`-style file instead of the whole file (below). |
+| `--expect-prefix P` | none | Refuse to write a value that doesn't start with `P`, catching a wrong paste before it lands. |
+| `--mode M` | `600` | The file's permission bits, octal `000`–`777`. |
+| `--value-from CMD` | none | Read the value from `CMD`'s stdout instead of prompting. |
+
+Writing a whole file always sets `--mode`, even on an existing file. With
+`--name`, an existing file keeps its mode, and `--mode` applies only when cred
+creates the file.
 
 Rewriting an existing file keeps its owner and group, so `sudo cred set` on a
 service's file leaves it readable by that service. If cred can't keep them —
@@ -124,19 +129,9 @@ backtick together with `'` or `\`.
 
 ### The receipt
 
-Every successful `set`/`show` prints a receipt. When an agent asked you for
-the credential, this block is what you hand back to it:
-
-```
-cred: OK
-  path         /home/you/.config/example/token
-  mode         600
-  bytes        26
-  fingerprint  97d90e6a6af2
-  prefix       tok_ ✓
-```
-
-The agent learns the path, file mode, byte count, and a 12-hex-character
+Every successful `set`/`show` prints a receipt — the indented block in the
+worked examples above. When an agent asked you for the credential, that block
+is what you hand back to it. The agent learns the path, file mode, byte count, and a 12-hex-character
 fingerprint (an unsalted SHA-256 prefix): enough to confirm the write
 landed, never the value itself.
 
