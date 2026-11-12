@@ -34,42 +34,6 @@ cred rm   <path> [--name KEY]
 cred version
 ```
 
-Flags may appear before or after the path (`cred set --name KEY <path>` and
-`cred set <path> --name KEY` both work). Run `cred <command> -h` for a
-command's own option list.
-
-**`set`** prompts on the controlling terminal (even when stdin is piped) and
-writes the value to `<path>`. Each character you type or
-paste is shown as one `●`, never as the character itself, so you can tell
-your input registered without it ever appearing on screen. Backspace erases
-one `●` per character removed; arrow keys and other escape
-sequences are ignored.
-`--value-from '<command>'` reads the value from another command's stdout
-instead of prompting. Ctrl-C, or Ctrl-D on an empty prompt, aborts and
-writes nothing.
-
-**`--value-from` must name a command that *fetches* the value, never one
-that *contains* it.** `--value-from 'op read op://vault/item/field'` keeps
-the credential out of argv and shell history; `--value-from 'echo sk-live-abc...'`
-puts it in both.
-
-| Flag | Default | What it does |
-|---|---|---|
-| `--name KEY` | none | Act on one key inside a `.env`-style file instead of the whole file (below). |
-| `--expect-prefix P` | none | Refuse to write a value that doesn't start with `P`, catching a wrong paste before it lands. |
-| `--mode M` | `600` | The file's permission bits, octal `000`–`777`. |
-| `--value-from CMD` | none | Read the value from `CMD`'s stdout instead of prompting. |
-
-Writing a whole file always sets `--mode`, even on an existing file. With
-`--name`, an existing file keeps its mode, and `--mode` applies only when cred
-creates the file.
-
-Rewriting an existing file keeps its owner and group, so `sudo cred set` on a
-service's file leaves it readable by that service. If cred can't keep them —
-you aren't root and the file belongs to someone else — it writes nothing.
-
-Worked example — a standalone credential file:
-
 ```console
 $ cred set ~/.config/example/token --expect-prefix tok_
 Value for /home/you/.config/example/token: ●●●●●●●●●●●●●●●●●●●●●●●●●●
@@ -81,70 +45,13 @@ cred: OK
   prefix       tok_ ✓
 ```
 
-```console
-$ cred show ~/.config/example/token
-cred: present
-  path         /home/you/.config/example/token
-  mode         600
-  bytes        26
-  fingerprint  97d90e6a6af2
-  modified     2026-08-28 08:35:11
+The indented block is the receipt: hand it back to the agent that asked. It
+shows the path, mode, size and a fingerprint, never the value. `--name KEY`
+does the same for one key in a `.env` file and leaves the rest of the file
+untouched.
 
-$ cred rm ~/.config/example/token
-cred: removed /home/you/.config/example/token
-```
-
-`show` on a path that doesn't exist reports `cred: MISSING — <path> does not
-exist` on stdout and exits 1 — `rm` reports absence the same way, in the same
-words, on the same stream.
-
-`set`, `show`, and `rm` all refuse a destination that isn't a plain
-file — a directory, or a symlink (even one pointing at a real credential).
-
-**`--name KEY`** redirects `set`/`show`/`rm` at one key inside a `.env`-style
-file instead of the whole file — the rest of the file (comments, ordering,
-every other key) is left untouched:
-
-```console
-$ cred set ~/project/.env --name API_KEY --expect-prefix sk_
-Value for API_KEY: ●●●●●●●●●●●●●●●●●●●●●●●●●●●●
-cred: OK
-  path         /home/you/project/.env
-  key          API_KEY
-  mode         600
-  bytes        28
-  fingerprint  46c0a14c6781
-  prefix       sk_ ✓
-```
-
-`cred rm ~/project/.env --name API_KEY` removes just that line; on a key
-that isn't set, it reports nothing was removed and exits 1 without touching
-the file.
-
-`set --name` quotes a value wherever a loader or a shell would misread it,
-so godotenv, python-dotenv and `. ./.env` all read back exactly the value
-typed. Two kinds of value have no such quoting, and `set --name` refuses them
-and writes nothing: one containing a newline, and one containing `$` or a
-backtick together with `'` or `\`.
-
-### The receipt
-
-Every successful `set`/`show` prints a receipt — the indented block in the
-worked examples above. When an agent asked you for the credential, that block
-is what you hand back to it. The agent learns the path, file mode, byte count, and a 12-hex-character
-fingerprint (an unsalted SHA-256 prefix): enough to confirm the write
-landed, never the value itself.
-
-### Duplicate keys in a `.env` file
-
-If a key appears more than once in a `.env` file, `set --name` and
-`show --name` both refuse with an error and change nothing. `rm --name`
-deletes every occurrence of the key; re-add it clean with `set`.
-
-### Where credentials go
-
-A standalone credential conventionally lives at `~/.config/<service>/<name>`,
-but `set` accepts any path.
+Every flag, the mode and owner rules, `.env` quoting, and `show`/`rm`:
+[docs/usage.md](docs/usage.md).
 
 ## What cred does not do
 
@@ -155,6 +62,10 @@ but `set` accepts any path.
 - **Be a password manager.** Use [`pass`](https://www.passwordstore.org/),
   [`gopass`](https://www.gopass.pw/), or the 1Password CLI.
 - **Print a value to stdout.** There is no `cred get`.
+
+## Status
+
+In use, `0.x`. What's next: [docs/roadmap.md](docs/roadmap.md).
 
 ## Development
 
