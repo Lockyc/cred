@@ -427,7 +427,10 @@ func TestEveryReaderFailsOnALineLongerThanTheScannerCap(t *testing.T) {
 	if has, err := HasEnvKey(p, "API_KEY"); err == nil {
 		t.Errorf("HasEnvKey = %v, nil; want a scan error", has)
 	}
-	if got, err := GetEnvKey(p, "API_KEY"); err == nil {
+	// The key comes first here, so only the scan error, not "is not set",
+	// can make GetEnvKey fail.
+	keyFirst := writeEnv(t, "API_KEY=value\nCOMMENT="+strings.Repeat("x", 8*1024*1024)+"\n")
+	if got, err := GetEnvKey(keyFirst, "API_KEY"); err == nil {
 		t.Errorf("GetEnvKey = %q, nil; want a scan error", got)
 	}
 	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err == nil {
