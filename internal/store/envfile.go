@@ -119,7 +119,7 @@ const shellSpecial = " \t\"'#=$`\\;&|<>()*?[]{}~!"
 
 // errUnquotable is quoteEnv's refusal: no quoting reads back the same in
 // godotenv, python-dotenv and `. ./.env`.
-var errUnquotable = errors.New("value contains $ or ` together with ' or \\, which no quoting reads back the same in every .env loader")
+var errUnquotable = errors.New("value contains ' or \\ together with $, ` or a trailing \\ or \", which no quoting reads back the same in every .env loader")
 
 // quoteEnv quotes only when the value would otherwise be misread, choosing
 // the one encoding godotenv, python-dotenv and `. ./.env` all read back
@@ -129,7 +129,9 @@ var errUnquotable = errors.New("value contains $ or ` together with ' or \\, whi
 // escaped quote and \\ as one backslash inside them, where sh takes both
 // literally. Double quotes, escaping only \ and ", need a value with no $ and
 // no `: sh would expand them, and python-dotenv keeps the backslash of a \$ or
-// \` escape. A value that fits neither is refused.
+// \` escape. They also need a value that does not end in \ or ": godotenv
+// takes any " after a backslash as escaped, so it misreads or fails on the
+// closing quote of `"a\\"` and `"a\""`. A value that fits neither is refused.
 func quoteEnv(v string) (string, error) {
 	if v == "" {
 		return `''`, nil
@@ -140,7 +142,7 @@ func quoteEnv(v string) (string, error) {
 	if !strings.ContainsAny(v, `'\`) {
 		return "'" + v + "'", nil
 	}
-	if !strings.ContainsAny(v, "$`") {
+	if !strings.ContainsAny(v, "$`") && !strings.HasSuffix(v, `\`) && !strings.HasSuffix(v, `"`) {
 		r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 		return `"` + r.Replace(v) + `"`, nil
 	}

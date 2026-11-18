@@ -102,11 +102,9 @@ func TestSetEnvKeyQuotesValuesThatNeedIt(t *testing.T) {
 		// A backslash or single quote forces double quotes, which escape
 		// only \ and ".
 		"back\\slash":       "API_KEY=\"back\\\\slash\"\n",       // backslash alone
-		"abc\\":             "API_KEY=\"abc\\\\\"\n",             // ends in a backslash
 		"a\\\\b":            "API_KEY=\"a\\\\\\\\b\"\n",          // two backslashes
 		"back\\slash'quote": "API_KEY=\"back\\\\slash'quote\"\n", // backslash and single quote
 		"say\"hi'there":     "API_KEY=\"say\\\"hi'there\"\n",     // both quote types together
-		"o'clock\\":         "API_KEY=\"o'clock\\\\\"\n",         // ends in a backslash
 	}
 	for value, want := range cases {
 		p := filepath.Join(t.TempDir(), ".env")
@@ -130,10 +128,11 @@ func TestSetEnvKeyRejectsAValueContainingANewline(t *testing.T) {
 	}
 }
 
-// $ or ` rules out double quotes, and ' or \ rules out single quotes; a value
-// with one of each has no encoding every reader agrees on.
+// $, ` or a trailing \ or " rules out double quotes, and ' or \ rules out
+// single quotes; a value with one of each has no encoding every reader agrees
+// on.
 func TestSetEnvKeyRejectsAValueNoQuotingReadsBackEverywhere(t *testing.T) {
-	for _, value := range []string{"it's$5", "a\\$b", "it's`x`", "a\\`b", "it's;$(touch pwned)&`touch pwned`|x"} {
+	for _, value := range []string{"it's$5", "a\\$b", "it's`x`", "a\\`b", "it's;$(touch pwned)&`touch pwned`|x", "abc\\", "o'clock\\", `\"`, `it's "q"`} {
 		p := writeEnv(t, "A=1\n")
 		if err := SetEnvKey(p, "API_KEY", value, 0o600); !errors.Is(err, errUnquotable) {
 			t.Errorf("Set(%q) = %v, want errUnquotable", value, err)
@@ -146,8 +145,7 @@ func TestSetEnvKeyRejectsAValueNoQuotingReadsBackEverywhere(t *testing.T) {
 
 // Every value quoteEnv encodes reads back unchanged through unquoteEnv.
 func TestQuoteEnvRoundTripsThroughUnquoteEnv(t *testing.T) {
-	values := append(shellMetacharValues(), "", "plain", "abc\\", "a\\\\b", `say"hi`, "o'clock\\", `\"`, "cost$5", "#lead", "a #b")
-	for _, v := range values {
+	for _, v := range readerCorpus() {
 		q, err := quoteEnv(v)
 		if err != nil {
 			t.Fatalf("quoteEnv(%q): %v", v, err)
@@ -263,7 +261,6 @@ func TestSetThenGetRoundTrips(t *testing.T) {
 		"has$dollar",
 		"has`backtick",
 		`has\backslash`,
-		`trailing\`,
 		"has'single",
 		`has"double`,
 		`both'and"quotes`,
@@ -445,6 +442,12 @@ func TestEnvKeyWhitespaceMatchStaysAnchoredOnTheWholeKey(t *testing.T) {
 	}
 }
 
+// readerCorpus is every value quoteEnv must encode so that each reader cred
+// supports reads it back unchanged.
+func readerCorpus() []string {
+	return append(shellMetacharValues(), "", "plain", "a\\\\b", `say"hi`, "o'clock\\x", `\"x`, `say "hi"`, "cost$5", "#lead", "a #b")
+}
+
 // shellMetacharValues pairs every shellSpecial character with a payload that
 // creates the file "pwned" if sh ever interprets it, plus the word-start and
 // mixed-quote shapes.
@@ -513,20 +516,8 @@ func TestSetEnvKeyOutputIsSafeToSourceInSh(t *testing.T) {
 // A hand-edited trailing comment is not part of the value: GetEnvKey reads
 // each line the way `. ./.env` does.
 func TestGetEnvKeyDropsATrailingComment(t *testing.T) {
-	cases := map[string]string{
-		"K=sk_abc # prod key":          "sk_abc",
-		"K=sk_abc\t#prod":              "sk_abc",
-		"K=sk_abc #":                   "sk_abc",
-		"K=a#b":                        "a#b",
-		"K=#abc":                       "#abc",
-		"K='q #in' # c":                "q #in",
-		"K='q #in'":                    "q #in",
-		`K="d \"#\" q" # c`:            `d "#" q`,
-		`K="it's" #c`:                  "it's",
-		"export K=sk_abc  # two-space": "sk_abc",
-	}
 	_, shErr := exec.LookPath("sh")
-	for line, want := range cases {
+	for line, want := range trailingCommentCases() {
 		p := writeEnv(t, line+"\n")
 		got, err := GetEnvKey(p, "K")
 		if err != nil {
@@ -542,5 +533,22 @@ func TestGetEnvKeyDropsATrailingComment(t *testing.T) {
 		if out, err := cmd.Output(); err != nil || string(out) != want {
 			t.Errorf("sh reads %q as %q (err %v), want %q", line, out, err, want)
 		}
+	}
+}
+
+// trailingCommentCases maps hand-written K= lines to the value `. ./.env`
+// hands the application.
+func trailingCommentCases() map[string]string {
+	return map[string]string{
+		"K=sk_abc # prod key":          "sk_abc",
+		"K=sk_abc\t#prod":              "sk_abc",
+		"K=sk_abc #":                   "sk_abc",
+		"K=a#b":                        "a#b",
+		"K=#abc":                       "#abc",
+		"K='q #in' # c":                "q #in",
+		"K='q #in'":                    "q #in",
+		`K="d \"#\" q" # c`:            `d "#" q`,
+		`K="it's" #c`:                  "it's",
+		"export K=sk_abc  # two-space": "sk_abc",
 	}
 }
