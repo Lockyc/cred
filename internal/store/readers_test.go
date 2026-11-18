@@ -53,7 +53,7 @@ var godotenvDiffers = map[string]string{
 // godotenv reads every hand-written line the way GetEnvKey does, except the
 // pinned ones, so a change in either reader shows up here.
 func TestGetEnvKeyAgreesWithGodotenvOnHandWrittenLines(t *testing.T) {
-	for line, want := range trailingCommentCases() {
+	for line := range trailingCommentCases() {
 		p := writeEnv(t, line+"\n")
 		got, err := GetEnvKey(p, "K")
 		if err != nil {
@@ -63,6 +63,7 @@ func TestGetEnvKeyAgreesWithGodotenvOnHandWrittenLines(t *testing.T) {
 		if err != nil {
 			t.Fatalf("godotenv.Read(%q): %v", line, err)
 		}
+		want := got
 		if pinned, ok := godotenvDiffers[line]; ok {
 			want = pinned
 		}
