@@ -101,8 +101,9 @@ the file.
 
 `set --name` quotes a value wherever a loader or a shell would misread it,
 so godotenv, python-dotenv and `. ./.env` all read back exactly the value
-typed. Two kinds of value have no such quoting, and `set --name` refuses them
-and writes nothing: one containing a newline, and one containing `'` or `\`
+typed. Three kinds of value have no such quoting, and `set --name` refuses
+them and writes nothing: one containing a newline, one that is not valid
+UTF-8, and one containing `'` or `\`
 together with `$`, a backtick, or a trailing `\` or `"`.
 
 If a key appears more than once in a `.env` file, `set --name` and

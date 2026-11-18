@@ -117,6 +117,18 @@ func TestSetEnvKeyQuotesValuesThatNeedIt(t *testing.T) {
 	}
 }
 
+// python-dotenv fails on the whole file and godotenv reads U+FFFD, so a value
+// that is not UTF-8 is refused with the file untouched.
+func TestSetEnvKeyRejectsAValueThatIsNotUTF8(t *testing.T) {
+	p := writeEnv(t, "A=1\n")
+	if err := SetEnvKey(p, "API_KEY", "tok\xffen", 0o600); err == nil {
+		t.Fatal("want an error: invalid UTF-8 does not read back in python-dotenv or godotenv")
+	}
+	if got := readEnv(t, p); got != "A=1\n" {
+		t.Fatalf("the file was rewritten to %q despite the rejected value", got)
+	}
+}
+
 func TestSetEnvKeyRejectsAValueContainingANewline(t *testing.T) {
 	p := filepath.Join(t.TempDir(), ".env")
 	err := SetEnvKey(p, "API_KEY", "two\nlines", 0o600)

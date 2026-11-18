@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // A .env assignment: optional leading whitespace, an optional `export `, the
@@ -52,6 +53,11 @@ func detectEOL(b []byte) string {
 func SetEnvKey(path, key, value string, mode os.FileMode) error {
 	if strings.ContainsAny(value, "\r\n") {
 		return fmt.Errorf("value contains a newline, which no .env loader reads back portably")
+	}
+	// python-dotenv refuses to load a file that is not UTF-8, and godotenv
+	// reads each invalid byte as U+FFFD.
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("value is not valid UTF-8, which no .env loader reads back portably")
 	}
 	quoted, err := quoteEnv(value)
 	if err != nil {
