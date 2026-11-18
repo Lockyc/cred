@@ -23,6 +23,10 @@ fuzz TIME="60s":
     go test -run '^$' -fuzz '^FuzzSetEnvKey$' -fuzztime {{TIME}} ./internal/store
     go test -run '^$' -fuzz '^FuzzFeed$' -fuzztime {{TIME}} ./internal/secret
 
+# Mutation-test PKG, only lines changed since BASE when given; triage survivors by hand (not in the gate)
+mutants PKG="./..." BASE="":
+    go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash --invert-logical -S lt {{ if BASE != "" { "-D " + BASE } else { "" } }} {{PKG}}
+
 # Format all Go files in place
 fmt:
     gofmt -w .

@@ -420,6 +420,34 @@ func TestRemoveEnvKeyHandlesALineLongerThanTheScannerDefault(t *testing.T) {
 	}
 }
 
+// A line past newScanner's cap is an error from every reader, never a scan
+// that silently stops partway and reports what it saw so far.
+func TestEveryReaderFailsOnALineLongerThanTheScannerCap(t *testing.T) {
+	p := writeEnv(t, "COMMENT="+strings.Repeat("x", 8*1024*1024)+"\nAPI_KEY=value\n")
+	if has, err := HasEnvKey(p, "API_KEY"); err == nil {
+		t.Errorf("HasEnvKey = %v, nil; want a scan error", has)
+	}
+	if got, err := GetEnvKey(p, "API_KEY"); err == nil {
+		t.Errorf("GetEnvKey = %q, nil; want a scan error", got)
+	}
+	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err == nil {
+		t.Error("SetEnvKey succeeded; want a scan error")
+	}
+	if err := RemoveEnvKey(p, "API_KEY"); err == nil {
+		t.Error("RemoveEnvKey succeeded; want a scan error")
+	}
+}
+
+// A right-hand side that is not one whole quoted string, optionally followed
+// by a comment, is bare text: unquoteEnv returns it as written.
+func TestUnquoteEnvLeavesAnythingButOneQuotedStringAsWritten(t *testing.T) {
+	for _, raw := range []string{`'a`, `"a`, `'abc`, `"abc`, `"ab\"`, `'a'b`, `'a' b`, `'a'#c`, `"a"b`, "xyzx", "'", `"`} {
+		if got := unquoteEnv(raw); got != raw {
+			t.Errorf("unquoteEnv(%q) = %q, want it as written", raw, got)
+		}
+	}
+}
+
 func TestEnvKeyMatchesWhitespaceAroundTheEquals(t *testing.T) {
 	const body = "A=1\nAPI_KEY = old\nB=2\n"
 
