@@ -17,6 +17,12 @@ test:
 readers:
     CRED_READERS=1 go test -count=1 -run PythonDotenv ./internal/store
 
+# Fuzz each parser for TIME apiece (seeds already run in the gate; not in the gate)
+fuzz TIME="60s":
+    go test -run '^$' -fuzz '^FuzzQuoteEnv$' -fuzztime {{TIME}} ./internal/store
+    go test -run '^$' -fuzz '^FuzzSetEnvKey$' -fuzztime {{TIME}} ./internal/store
+    go test -run '^$' -fuzz '^FuzzFeed$' -fuzztime {{TIME}} ./internal/secret
+
 # Format all Go files in place
 fmt:
     gofmt -w .
