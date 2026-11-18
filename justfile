@@ -13,6 +13,10 @@ build:
 test:
     go test ./...
 
+# Read cred's .env output back through python-dotenv (needs uvx; not in the gate)
+readers:
+    CRED_READERS=1 go test -count=1 -run PythonDotenv ./internal/store
+
 # Format all Go files in place
 fmt:
     gofmt -w .
