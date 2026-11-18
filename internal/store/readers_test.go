@@ -12,12 +12,24 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// godotenvMisreads are values whose double-quoted encoding godotenv misreads
+// or fails on: each ends in \ or ". Set may refuse them, but anything it
+// writes for them must read back.
+var godotenvMisreads = map[string]bool{`abc\`: true, `o'clock\`: true, `\"`: true, `it's "q"`: true}
+
 // Every value cred writes reads back unchanged in godotenv, a reader
 // quoteEnv promises to agree with.
 func TestSetEnvKeyReadsBackInGodotenv(t *testing.T) {
-	for _, value := range readerCorpus() {
+	values := readerCorpus()
+	for v := range godotenvMisreads {
+		values = append(values, v)
+	}
+	for _, value := range values {
 		p := filepath.Join(t.TempDir(), ".env")
 		if err := SetEnvKey(p, "K", value, 0o600); err != nil {
+			if godotenvMisreads[value] {
+				continue
+			}
 			t.Fatalf("Set(%q): %v", value, err)
 		}
 		env, err := godotenv.Read(p)
