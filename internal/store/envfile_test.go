@@ -543,6 +543,7 @@ func trailingCommentCases() map[string]string {
 		"K=sk_abc # prod key":          "sk_abc",
 		"K=sk_abc\t#prod":              "sk_abc",
 		"K=sk_abc #":                   "sk_abc",
+		"K=a #b #c":                    "a",
 		"K=a#b":                        "a#b",
 		"K=#abc":                       "#abc",
 		"K='q #in' # c":                "q #in",
