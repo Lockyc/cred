@@ -142,7 +142,9 @@ func quoteEnv(v string) (string, error) {
 	if v == "" {
 		return `''`, nil
 	}
-	if !strings.ContainsAny(v, shellSpecial) {
+	// Every dotenv reader, GetEnvKey included, trims a bare value's Unicode
+	// whitespace, which reaches past shellSpecial's space and tab.
+	if !strings.ContainsAny(v, shellSpecial) && strings.TrimSpace(v) == v {
 		return v, nil
 	}
 	if !strings.ContainsAny(v, `'\`) {

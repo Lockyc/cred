@@ -457,7 +457,7 @@ func TestEnvKeyWhitespaceMatchStaysAnchoredOnTheWholeKey(t *testing.T) {
 // readerCorpus is every value quoteEnv must encode so that each reader cred
 // supports reads it back unchanged.
 func readerCorpus() []string {
-	return append(shellMetacharValues(), "", "plain", "a\\\\b", `say"hi`, "o'clock\\x", `\"x`, `say "hi"`, "cost$5", "#lead", "a #b")
+	return append(shellMetacharValues(), "", "plain", "tok\f", "\vtok", "tok ", "a\\\\b", `say"hi`, "o'clock\\x", `\"x`, `say "hi"`, "cost$5", "#lead", "a #b")
 }
 
 // shellMetacharValues pairs every shellSpecial character with a payload that
