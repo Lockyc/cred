@@ -30,7 +30,7 @@ func TestSetEnvKeyReadsBackInGodotenv(t *testing.T) {
 // GetEnvKey and `. ./.env`, with godotenv's value: it cuts a bare value at
 // the last ` #`, not the first.
 var godotenvDiffers = map[string]string{
-	"K=a #b #c": "a #b",}
+	"K=a #b #c": "a #b"}
 
 // godotenv reads every hand-written line the way GetEnvKey does, except the
 // pinned ones, so a change in either reader shows up here.
