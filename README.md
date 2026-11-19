@@ -73,12 +73,11 @@ In use, `0.x`. What's next: [docs/roadmap.md](docs/roadmap.md).
 just build   # go build
 just test    # go test ./...
 just fmt     # gofmt -w .
-just gate    # gofmt check + go vet + go test — the pre-release gate; run it before tagging
+just gate    # gofmt check + go vet + go test
 just install # go install, then runs the installed binary's `version`
-just readers # read cred's .env output back through python-dotenv (needs uvx)
-just fuzz    # fuzz the .env and keystroke parsers, 60s each
-just mutants # mutation-test with gremlins; triage survivors by hand
 ```
+
+Branch model and release process: [CLAUDE.md](CLAUDE.md).
 
 ## License
 
