@@ -161,6 +161,13 @@ func runSet(args []string, stdout, stderr io.Writer) int {
 	} else if refuseNonRegular(stderr, "write", path, fi) {
 		return 1
 	}
+	// Also before prompting: a whole-file write onto a .env would destroy its other keys.
+	if *key == "" {
+		if err := store.RefuseWholeFileOverEnv(path); err != nil {
+			fmt.Fprintf(stderr, "cred: %v — nothing written\n", err)
+			return 1
+		}
+	}
 
 	label := path
 	if *key != "" {

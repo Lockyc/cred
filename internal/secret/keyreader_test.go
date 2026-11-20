@@ -11,6 +11,24 @@ import (
 // without hardcoding the byte sequence in more than one place.
 var mask = []byte(string(maskRune))
 
+func TestFeedMarksAPasteThatRunsPastItsFirstLine(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		more bool
+	}{
+		{"-----BEGIN BLOCK-----\nline two\n-----END BLOCK-----\n", true},
+		{"sk-abc\r\n", false},
+		{"sk-abc\n\n", false},
+		{"sk-abc\r", false},
+	} {
+		k := newKeyState()
+		_, done, _ := k.feed([]byte(tc.in))
+		if !done || k.moreLines != tc.more {
+			t.Errorf("%q: done=%v moreLines=%v, want done and moreLines=%v", tc.in, done, k.moreLines, tc.more)
+		}
+	}
+}
+
 func TestFeedPlainASCII(t *testing.T) {
 	k := newKeyState()
 	out, done, abort := k.feed([]byte("abc"))

@@ -27,6 +27,26 @@ func readEnv(t *testing.T, p string) string {
 	return string(b)
 }
 
+func TestAMultiLineQuotedValueIsRefusedBySetGetAndRemove(t *testing.T) {
+	const body = "A=1\nJWT_KEY=\"-----BEGIN BLOCK-----\nline two\n-----END BLOCK-----\"\nB=2\n"
+	p := writeEnv(t, body)
+	if err := SetEnvKey(p, "JWT_KEY", "new", 0o600); err == nil || !strings.Contains(err.Error(), "multi-line") {
+		t.Errorf("SetEnvKey: err = %v, want a multi-line refusal", err)
+	}
+	if _, err := GetEnvKey(p, "JWT_KEY"); err == nil || !strings.Contains(err.Error(), "multi-line") {
+		t.Errorf("GetEnvKey: err = %v, want a multi-line refusal", err)
+	}
+	if err := RemoveEnvKey(p, "JWT_KEY"); err == nil || !strings.Contains(err.Error(), "multi-line") {
+		t.Errorf("RemoveEnvKey: err = %v, want a multi-line refusal", err)
+	}
+	if got := readEnv(t, p); got != body {
+		t.Errorf("file changed:\n%s", got)
+	}
+	if err := SetEnvKey(p, "A", "3", 0o600); err != nil {
+		t.Errorf("another key in the same file still sets: %v", err)
+	}
+}
+
 func TestSetEnvKeyReplacesInPlacePreservingEverythingElse(t *testing.T) {
 	p := writeEnv(t, "# a comment\nAPP_ENV=local\nAPI_KEY=old\nDB_HOST=localhost\n")
 	if err := SetEnvKey(p, "API_KEY", "new", 0o600); err != nil {

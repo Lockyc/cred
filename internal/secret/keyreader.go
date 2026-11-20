@@ -1,6 +1,9 @@
 package secret
 
-import "unicode/utf8"
+import (
+	"bytes"
+	"unicode/utf8"
+)
 
 // maskRune is echoed once per accumulated unit entered at a hidden prompt, in
 // place of the unit itself — never the character typed. A silent prompt
@@ -37,6 +40,9 @@ type keyState struct {
 	units [][]byte
 	pend  []byte // bytes of a multi-byte rune split across reads, not yet complete
 	esc   escState
+	// moreLines is set when the terminator that ended input was followed, in the same read,
+	// by anything other than more line endings: a multi-line paste, which FromTTY refuses.
+	moreLines bool
 }
 
 func newKeyState() *keyState {
@@ -65,8 +71,9 @@ func (k *keyState) value() string {
 // input), and whether it was aborted (Ctrl-C, or Ctrl-D on empty input).
 //
 // On done or abort, feed returns immediately — any bytes in chunk after the
-// triggering byte are discarded, so a pasted value containing a newline
-// submits at the newline.
+// triggering byte are discarded. A terminator followed by more than line
+// endings sets moreLines: the value spans lines, and storing its first line
+// would be a wrong credential with an OK receipt.
 func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 	data := chunk
 	if len(k.pend) > 0 {
@@ -127,6 +134,7 @@ func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 			// each of its bytes decodes as a one-byte unit and is accumulated
 			// verbatim, which is what keeps the value byte-identical to what
 			// was entered (see TestFeedIncompleteUTF8AtEnterSurvivesVerbatim).
+			k.moreLines = len(bytes.Trim(data[i+1:], "\r\n")) > 0
 			return out, true, false
 		case b == 0x7F || b == 0x08: // DEL or BS
 			if len(k.units) > 0 {

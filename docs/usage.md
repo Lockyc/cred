@@ -38,7 +38,12 @@ one `●` per character removed; arrow keys and other escape
 sequences are ignored.
 `--value-from '<command>'` reads the value from another command's stdout
 instead of prompting. Ctrl-C, or Ctrl-D on an empty prompt, aborts and
-writes nothing.
+writes nothing. The prompt takes one line: a paste that runs past its first
+line (a PEM key) is refused and writes nothing — pass a multi-line value with
+`--value-from`.
+
+Without `--name`, `set` replaces the whole file, so it refuses a file that
+already holds `KEY=value` lines; to set one key there, add `--name`.
 
 **`--value-from` must name a command that *fetches* the value, never one
 that *contains* it.** `--value-from 'op read op://vault/item/field'` keeps
@@ -108,7 +113,8 @@ together with `$`, a backtick, or a trailing `\` or `"`.
 
 If a key appears more than once in a `.env` file, `set --name` and
 `show --name` both refuse with an error and change nothing. `rm --name`
-deletes every occurrence of the key; re-add it clean with `set`.
+deletes every occurrence of the key; re-add it clean with `set`. A key whose
+quoted value runs over several lines is refused by all three; edit it by hand.
 
 ## The receipt
 

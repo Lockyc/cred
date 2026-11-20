@@ -16,7 +16,32 @@ import (
 // key, optional whitespace, then `=`. Anchored on the full key so API_KEY never
 // matches MY_API_KEY.
 func keyLine(key string) *regexp.Regexp {
-	return regexp.MustCompile(`^(\s*(?:export\s+)?)` + regexp.QuoteMeta(key) + `\s*=`)
+	return regexp.MustCompile(assignLead + regexp.QuoteMeta(key) + `\s*=`)
+}
+
+const assignLead = `^(\s*(?:export\s+)?)`
+
+// anyAssignment is keyLine for any key.
+var anyAssignment = regexp.MustCompile(assignLead + `[A-Za-z_][A-Za-z0-9_]*\s*=`)
+
+// RefuseWholeFileOverEnv refuses a whole-file write onto a file that holds .env
+// assignments: replacing it would destroy every other key and comment, with no
+// earlier version kept. Setting one key there is `--name`. A missing file is fine.
+func RefuseWholeFileOverEnv(path string) error {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	sc := newScanner(b)
+	for sc.Scan() {
+		if anyAssignment.MatchString(sc.Text()) {
+			return fmt.Errorf("%s holds KEY=value lines, and writing the whole file would replace every one; to set one key, add --name KEY", path)
+		}
+	}
+	return sc.Err()
 }
 
 // newScanner returns a line scanner with its buffer cap raised above the
@@ -87,6 +112,9 @@ func SetEnvKey(path, key, value string, mode os.FileMode) error {
 		sc := newScanner(existing)
 		for sc.Scan() {
 			if m := re.FindStringSubmatch(sc.Text()); m != nil {
+				if opensMultiLine(sc.Text()) {
+					return errMultiLine(key, path)
+				}
 				matches++
 				if !replaced {
 					// Keep the line's indentation and `export `: dropping it
@@ -169,6 +197,9 @@ func GetEnvKey(path, key string) (string, error) {
 	var value string
 	for sc.Scan() {
 		if re.MatchString(sc.Text()) {
+			if opensMultiLine(sc.Text()) {
+				return "", errMultiLine(key, path)
+			}
 			matches++
 			_, v, _ := strings.Cut(sc.Text(), "=")
 			value = v
@@ -228,6 +259,19 @@ func closingQuote(v string) int {
 	return -1
 }
 
+// opensMultiLine reports whether an assignment line's value opens a quote it does not close:
+// godotenv and python-dotenv read on into the following lines (a PEM key), which this
+// line-at-a-time code would split, so set, show and rm refuse such a key rather than corrupt it.
+func opensMultiLine(line string) bool {
+	_, v, _ := strings.Cut(line, "=")
+	v = strings.TrimSpace(v)
+	return v != "" && (v[0] == '"' || v[0] == '\'') && closingQuote(v) < 0
+}
+
+func errMultiLine(key, path string) error {
+	return fmt.Errorf("key %q holds a multi-line quoted value in %s; edit it by hand", key, path)
+}
+
 // isCommentOrBlank reports whether rest, the text after a closing quote, is
 // nothing or whitespace then a `#` comment.
 func isCommentOrBlank(rest string) bool {
@@ -274,6 +318,9 @@ func RemoveEnvKey(path, key string) error {
 	sc := newScanner(b)
 	for sc.Scan() {
 		if re.MatchString(sc.Text()) {
+			if opensMultiLine(sc.Text()) {
+				return errMultiLine(key, path)
+			}
 			continue
 		}
 		out.WriteString(sc.Text() + eol)

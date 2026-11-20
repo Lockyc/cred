@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+func TestWriteFileRefusesAFileHoldingEnvAssignments(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".env")
+	const body = "# app\nexport API_KEY=old\nOTHER=keep\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(p, "new", 0o600); err == nil {
+		t.Fatal("WriteFile replaced a .env-shaped file")
+	}
+	if got, _ := os.ReadFile(p); string(got) != body {
+		t.Fatalf("file changed: %q", got)
+	}
+	tok := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tok, []byte("sk-old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(tok, "sk-new", 0o600); err != nil {
+		t.Fatalf("a standalone credential still rotates: %v", err)
+	}
+}
+
 func TestWriteFileCreatesWithRequestedMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "key")

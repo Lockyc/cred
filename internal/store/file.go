@@ -15,8 +15,12 @@ import (
 // the caller picked its mode on purpose. It goes through writeFileAtomic with
 // created=true for exactly that reason — a temp file created 0600, chmod'd to
 // mode, then renamed onto path, so there is never a window where path itself
-// is wider than intended.
+// is wider than intended. A file holding .env assignments is refused
+// (RefuseWholeFileOverEnv).
 func WriteFile(path, value string, mode os.FileMode) error {
+	if err := RefuseWholeFileOverEnv(path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

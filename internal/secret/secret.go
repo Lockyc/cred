@@ -22,6 +22,10 @@ var ErrEmpty = errors.New("empty value")
 // empty input). Nothing is written on this path.
 var ErrAborted = errors.New("aborted")
 
+// ErrMultiLine means a paste at the hidden prompt ran past its first line. The prompt reads one
+// line, so storing that line would be a wrong credential with an OK receipt; nothing is written.
+var ErrMultiLine = errors.New("the value spans more than one line; pass it with --value-from '<command>' instead")
+
 // Trim removes trailing newlines and carriage returns and nothing else. A value
 // from `cat file` or a command's stdout almost always carries a trailing
 // newline that is not part of the credential; a CR arrives from a CRLF paste.
@@ -79,6 +83,10 @@ func FromTTY(prompt string) (string, error) {
 	// returns — a raw terminal left unrestored breaks every command typed
 	// into it afterwards.
 	defer term.Restore(fd, oldState)
+	// Runs before the restore (defers are LIFO): discard whatever is still queued on the
+	// terminal, the rest of a multi-line paste. Restoring does not flush it, so the shell
+	// would read those lines as typed input, run them and keep them in its history.
+	defer flushInput(fd)
 
 	fmt.Fprintf(tty, "%s: ", prompt)
 
@@ -116,6 +124,9 @@ readLoop:
 
 	if aborted {
 		return "", ErrAborted
+	}
+	if k.moreLines {
+		return "", ErrMultiLine
 	}
 
 	v := Trim(k.value())
