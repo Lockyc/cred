@@ -26,11 +26,13 @@ Each symbol's docblock carries its own rationale; this is the map.
 - `internal/secret` — acquires a value: `FromTTY` (masked prompt on
   `/dev/tty`), `FromCommand` (`sh -c`, stdout). The prompt's
   keystroke accounting is `keyState.feed` in `keyreader.go`, the testable
-  core. **Known gap:** an external SIGTERM/SIGINT leaves the terminal raw —
+  core. `flushInput` and `pendingInput` are per-OS (`flush_bsd.go`,
+  `flush_linux.go`); a new platform extends both. **Known gap:** an external SIGTERM/SIGINT leaves the terminal raw —
   see `docs/roadmap.md`.
 - `internal/store` — destinations: `file.go` (`WriteFile`/`ReadFile`, a
   whole file), `envfile.go` (`SetEnvKey`/`GetEnvKey`/`HasEnvKey`/
-  `RemoveEnvKey`, one `.env` key, comment/ordering-preserving). Every write
+  `RemoveEnvKey`, one `.env` key, comment/ordering-preserving;
+  `RefuseWholeFileOverEnv`; `ValidKey`). Every write
   goes through `atomic.go`'s `writeFileAtomic`.
 - `internal/receipt` — the paste-back block and `Fingerprint`.
 
