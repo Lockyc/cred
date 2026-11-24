@@ -125,7 +125,7 @@ readLoop:
 	if aborted {
 		return "", ErrAborted
 	}
-	if k.moreLines {
+	if k.moreLines || queuedMoreLines(tty) {
 		return "", ErrMultiLine
 	}
 
@@ -134,4 +134,19 @@ readLoop:
 		return "", ErrEmpty
 	}
 	return v, nil
+}
+
+// queuedMoreLines reports whether f has input already queued beyond line
+// endings. A read can end exactly at a paste's first line ending, leaving the
+// rest of the paste waiting where feed never sees it; the deferred flush would
+// then discard it and the first line alone would be stored. It reads only what
+// is queued, so it never blocks.
+func queuedMoreLines(f *os.File) bool {
+	n, err := pendingInput(int(f.Fd()))
+	if err != nil || n <= 0 {
+		return false
+	}
+	buf := make([]byte, n)
+	n, _ = f.Read(buf)
+	return moreThanLineEndings(buf[:n])
 }

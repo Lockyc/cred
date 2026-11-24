@@ -49,6 +49,12 @@ func newKeyState() *keyState {
 	return &keyState{}
 }
 
+// moreThanLineEndings reports whether rest, input following the terminator,
+// holds anything but line endings: the further lines of a paste.
+func moreThanLineEndings(rest []byte) bool {
+	return len(bytes.Trim(rest, "\r\n")) > 0
+}
+
 // value returns the bytes accumulated so far, concatenated in entry order.
 // The result is not validated as UTF-8 and may contain whatever invalid or
 // binary bytes were actually typed or pasted — the value must be
@@ -134,7 +140,7 @@ func (k *keyState) feed(chunk []byte) (out []byte, done bool, abort bool) {
 			// each of its bytes decodes as a one-byte unit and is accumulated
 			// verbatim, which is what keeps the value byte-identical to what
 			// was entered (see TestFeedIncompleteUTF8AtEnterSurvivesVerbatim).
-			k.moreLines = len(bytes.Trim(data[i+1:], "\r\n")) > 0
+			k.moreLines = moreThanLineEndings(data[i+1:])
 			return out, true, false
 		case b == 0x7F || b == 0x08: // DEL or BS
 			if len(k.units) > 0 {
