@@ -42,8 +42,8 @@ writes nothing. The prompt takes one line: a paste that runs past its first
 line (a PEM key) is refused and writes nothing — pass a multi-line value with
 `--value-from`.
 
-Without `--name`, `set` replaces the whole file, so it refuses a file that
-already holds `KEY=value` lines; to set one key there, add `--name`.
+Without `--name`, `set` replaces the whole file, so it refuses a file of more
+than one line that holds `KEY=value` lines; to set one key there, add `--name`.
 
 **`--value-from` must name a command that *fetches* the value, never one
 that *contains* it.** `--value-from 'op read op://vault/item/field'` keeps

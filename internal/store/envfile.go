@@ -24,9 +24,12 @@ const assignLead = `^(\s*(?:export\s+)?)`
 // anyAssignment is keyLine for any key.
 var anyAssignment = regexp.MustCompile(assignLead + `[A-Za-z_][A-Za-z0-9_]*\s*=`)
 
-// RefuseWholeFileOverEnv refuses a whole-file write onto a file that holds .env
-// assignments: replacing it would destroy every other key and comment, with no
-// earlier version kept. Setting one key there is `--name`. A missing file is fine.
+// RefuseWholeFileOverEnv refuses a whole-file write onto a file of more than
+// one line that holds .env assignments: replacing it would destroy every other
+// key and comment, with no earlier version kept. Setting one key there is
+// `--name`. A one-line file is a standalone credential, the shape WriteFile
+// writes, however it reads: a base64 token ending in `=` padding matches
+// anyAssignment. A missing file is fine.
 func RefuseWholeFileOverEnv(path string) error {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -36,12 +39,18 @@ func RefuseWholeFileOverEnv(path string) error {
 		return err
 	}
 	sc := newScanner(b)
+	lines, assigns := 0, false
 	for sc.Scan() {
-		if anyAssignment.MatchString(sc.Text()) {
-			return fmt.Errorf("%s holds KEY=value lines, and writing the whole file would replace every one; to set one key, add --name KEY", path)
-		}
+		lines++
+		assigns = assigns || anyAssignment.MatchString(sc.Text())
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	if lines > 1 && assigns {
+		return fmt.Errorf("%s holds KEY=value lines, and writing the whole file would replace every one; to set one key, add --name KEY", path)
+	}
+	return nil
 }
 
 // newScanner returns a line scanner with its buffer cap raised above the

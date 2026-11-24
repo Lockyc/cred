@@ -27,6 +27,20 @@ func TestWriteFileRefusesAFileHoldingEnvAssignments(t *testing.T) {
 	}
 }
 
+// A file WriteFile wrote holds exactly one line, and a base64 credential
+// ending in `=` padding reads like a KEY= assignment: it must still rotate.
+func TestWriteFileRotatesAOneLineCredentialThatLooksLikeAnAssignment(t *testing.T) {
+	for _, old := range []string{"dGVzdA==", "QUJDREVGR0hJSktMTU5PUA="} {
+		tok := filepath.Join(t.TempDir(), "token")
+		if err := WriteFile(tok, old, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteFile(tok, "bmV3", 0o600); err != nil {
+			t.Errorf("rotating %q: %v", old, err)
+		}
+	}
+}
+
 func TestWriteFileCreatesWithRequestedMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "key")
