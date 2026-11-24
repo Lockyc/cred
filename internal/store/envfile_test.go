@@ -182,7 +182,7 @@ func TestQuoteEnvRoundTripsThroughUnquoteEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("quoteEnv(%q): %v", v, err)
 		}
-		if got := unquoteEnv(q); got != v {
+		if got, ok := unquoteEnv(q); !ok || got != v {
 			t.Errorf("unquoteEnv(quoteEnv(%q)) = %q (encoded %q)", v, got, q)
 		}
 	}
@@ -224,6 +224,28 @@ func TestGetEnvKeyUnquotes(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+// The .env readers decode a quoted backslash escape other than \\ and \" in
+// double quotes differently, and \\ in single quotes, so GetEnvKey refuses
+// rather than fingerprint a value the application may not see. SetEnvKey
+// replaces the line whole.
+func TestGetEnvKeyRefusesAQuotedEscapeLoadersDisagreeOn(t *testing.T) {
+	for _, line := range []string{`K="a\nb"`, `K="a\$b"`, `K="a\tb"`, "K=\"a\\`b\"", `K="a\qb" # c`, `K='a\\b'`} {
+		p := writeEnv(t, line+"\n")
+		if v, err := GetEnvKey(p, "K"); err == nil || !strings.Contains(err.Error(), "edit it by hand") {
+			t.Errorf("%s: GetEnvKey = %q, %v; want an escape refusal", line, v, err)
+		}
+		if err := SetEnvKey(p, "K", "new", 0o600); err != nil {
+			t.Errorf("%s: SetEnvKey: %v", line, err)
+		}
+	}
+	for line, want := range map[string]string{`K="a\\b"`: `a\b`, `K="a\"b"`: `a"b`, `K='a\nb'`: `a\nb`} {
+		p := writeEnv(t, line+"\n")
+		if got, err := GetEnvKey(p, "K"); err != nil || got != want {
+			t.Errorf("%s: GetEnvKey = %q, %v; want %q", line, got, err, want)
 		}
 	}
 }
@@ -465,7 +487,7 @@ func TestEveryReaderFailsOnALineLongerThanTheScannerCap(t *testing.T) {
 // by a comment, is bare text: unquoteEnv returns it as written.
 func TestUnquoteEnvLeavesAnythingButOneQuotedStringAsWritten(t *testing.T) {
 	for _, raw := range []string{`'a`, `"a`, `'abc`, `"abc`, `"ab\"`, `'a'b`, `'a' b`, `'a'#c`, `"a"b`, "xyzx", "'", `"`} {
-		if got := unquoteEnv(raw); got != raw {
+		if got, ok := unquoteEnv(raw); !ok || got != raw {
 			t.Errorf("unquoteEnv(%q) = %q, want it as written", raw, got)
 		}
 	}

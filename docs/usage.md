@@ -115,6 +115,9 @@ If a key appears more than once in a `.env` file, `set --name` and
 `show --name` both refuse with an error and change nothing. `rm --name`
 deletes every occurrence of the key; re-add it clean with `set`. A key whose
 quoted value runs over several lines is refused by all three; edit it by hand.
+`show --name` also refuses a quoted value holding a backslash escape the
+loaders decode differently (in double quotes anything but `\\` and `\"`, in
+single quotes `\\`); `set --name` replaces it.
 
 ## The receipt
 

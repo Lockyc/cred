@@ -231,7 +231,11 @@ func GetEnvKey(path, key string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("key %q is not set in %s", key, path)
 	case 1:
-		return unquoteEnv(value), nil
+		v, ok := unquoteEnv(value)
+		if !ok {
+			return "", fmt.Errorf("key %q holds a quoted value with a backslash escape .env loaders decode differently in %s; edit it by hand", key, path)
+		}
+		return v, nil
 	default:
 		// Same refusal as SetEnvKey, and for the same reason: which
 		// occurrence a .env loader honors is not portable, so reading one
@@ -245,23 +249,41 @@ func GetEnvKey(path, key string) (string, error) {
 // — a `#` after whitespace, outside quotes. godotenv, python-dotenv and
 // `. ./.env` all drop that comment, so `show --name` fingerprints the value
 // every reader cred supports hands the application, not the comment with it.
-func unquoteEnv(raw string) string {
+//
+// ok is false for a quoted string holding a backslash escape those readers
+// decode differently: in double quotes anything but \\ and \" (the only two
+// quoteEnv writes; godotenv turns \n into a newline and drops the backslash of
+// \q, python-dotenv keeps the backslash of \$), and in single quotes \\
+// (python-dotenv reads one backslash, sh two).
+func unquoteEnv(raw string) (value string, ok bool) {
 	v := strings.TrimSpace(raw)
 	if len(v) >= 2 && (v[0] == '\'' || v[0] == '"') {
 		if end := closingQuote(v); end > 0 && isCommentOrBlank(v[end+1:]) {
+			body := v[1:end]
 			if v[0] == '\'' {
-				return v[1:end]
+				return body, !strings.Contains(body, `\\`)
 			}
-			r := strings.NewReplacer(`\"`, `"`, `\$`, "$", "\\`", "`", `\\`, `\`)
-			return r.Replace(v[1:end])
+			var b strings.Builder
+			for i := 0; i < len(body); i++ {
+				if body[i] == '\\' {
+					// closingQuote skipped the byte after every backslash, so
+					// body never ends in a lone one.
+					i++
+					if body[i] != '\\' && body[i] != '"' {
+						return "", false
+					}
+				}
+				b.WriteByte(body[i])
+			}
+			return b.String(), true
 		}
 	}
 	for i := 1; i < len(v); i++ {
 		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
-			return strings.TrimSpace(v[:i])
+			return strings.TrimSpace(v[:i]), true
 		}
 	}
-	return v
+	return v, true
 }
 
 // closingQuote returns the index of the quote closing the one at v[0], or -1.

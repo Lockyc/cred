@@ -47,7 +47,7 @@ func FuzzQuoteEnv(f *testing.F) {
 				t.Fatalf("quoteEnv(%q) = %q, want %q", v, q, want)
 			}
 		}
-		if got := unquoteEnv(q); got != v {
+		if got, ok := unquoteEnv(q); !ok || got != v {
 			t.Fatalf("unquoteEnv(quoteEnv(%q)) = %q (encoded %q)", v, got, q)
 		}
 		if strings.ContainsAny(v, "\r\n") || !utf8.ValidString(v) {
