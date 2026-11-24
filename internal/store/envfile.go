@@ -21,8 +21,18 @@ func keyLine(key string) *regexp.Regexp {
 
 const assignLead = `^(\s*(?:export\s+)?)`
 
+// keyName is the shape of a .env key cred reads, writes and recognises. A key
+// is written verbatim into `KEY=value`, so an `=`, whitespace or a newline in
+// it would corrupt the line, or inject another one.
+const keyName = `[A-Za-z_][A-Za-z0-9_.]*`
+
+var validKey = regexp.MustCompile(`^` + keyName + `$`)
+
+// ValidKey reports whether key is a .env key cred will write.
+func ValidKey(key string) bool { return validKey.MatchString(key) }
+
 // anyAssignment is keyLine for any key.
-var anyAssignment = regexp.MustCompile(assignLead + `[A-Za-z_][A-Za-z0-9_]*\s*=`)
+var anyAssignment = regexp.MustCompile(assignLead + keyName + `\s*=`)
 
 // RefuseWholeFileOverEnv refuses a whole-file write onto a file of more than
 // one line that holds .env assignments: replacing it would destroy every other

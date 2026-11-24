@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -51,15 +50,11 @@ func refuseNonRegular(stderr io.Writer, op, path string, fi os.FileInfo) bool {
 	return true
 }
 
-// envKey is the shape a --name KEY must have. The key is written verbatim
-// into `KEY=value`, so an `=`, whitespace or a newline in it would corrupt
-// the line, or inject another one.
-var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
-
 // refuseBadName reports (and prints) whether a non-empty --name is not a
-// valid .env key — a usage error, refused before the file is touched.
+// valid .env key (store.ValidKey) — a usage error, refused before the file
+// is touched.
 func refuseBadName(stderr io.Writer, key string) bool {
-	if key == "" || envKey.MatchString(key) {
+	if key == "" || store.ValidKey(key) {
 		return false
 	}
 	fmt.Fprintf(stderr, "cred: --name %q is not a valid .env key (letters, digits, _ and ., not starting with a digit)\n", key)

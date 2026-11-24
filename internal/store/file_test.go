@@ -27,6 +27,18 @@ func TestWriteFileRefusesAFileHoldingEnvAssignments(t *testing.T) {
 	}
 }
 
+// cred set --name accepts a dotted key, so a .env of dotted keys is a .env.
+func TestWriteFileRefusesAFileOfDottedKeys(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "app.env")
+	const body = "A.B=x\nC.D=y\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(p, "new", 0o600); err == nil {
+		t.Fatal("WriteFile replaced a file of dotted-key assignments")
+	}
+}
+
 // A file WriteFile wrote holds exactly one line, and a base64 credential
 // ending in `=` padding reads like a KEY= assignment: it must still rotate.
 func TestWriteFileRotatesAOneLineCredentialThatLooksLikeAnAssignment(t *testing.T) {
